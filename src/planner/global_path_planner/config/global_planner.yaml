@@ -1,0 +1,24 @@
+global_path_planner_node:
+  ros__parameters:
+    frame_id: world
+    resolution: 0.2 # 粗体素边长（米）。PCD 先按该分辨率占格，再在 (x,y) 上提支撑面
+    min_clearance: 0.5 # 撑面上方必须留空的净空高度（米）
+    # Align with scan_planner grid_map.double_cylinder_radius / body_height.
+    robot_radius: 0.25
+    robot_height: 0.4
+    max_step_height: 0.40 # 相邻支撑格允许的高度差上限（米）。超过则不能直接走过去（像过高台阶/断层）
+    # 起终点吸附到最近可通行支撑面的平面搜索半径（米）。
+    # RViz 点偏了、或目标落在空洞上时，在该半径内找合法支撑；多层时还会在附近多个高度层里选可达层
+    xy_snap_radius: 1.5
+    # Only use supports whose z is within this of the clicked/goal height
+    # (Publish Point z; for 2D Goal Pose z≈0, reference is start height).
+    goal_z_tolerance: 0.6 # 终点只保留与目标高度差 ≤ goal_z_tolerance 的支撑
+    # 贴边/楼梯侧爬惩罚：不兼容邻格越多代价越大，路径更靠可通行区域中心
+    edge_cost_weight: 2.0
+    path_min_distance: 0.5 # 路径点间最小距离（米）
+    use_odom_as_start: true
+    plan_on_startup: false 
+    publish_support_cloud: true
+    # Override via launch: pcd_file, startup_start/goal when plan_on_startup:=true
+    startup_start: [0.0, 0.0, 0.0]
+    startup_goal: [1.0, 0.0, 0.0]

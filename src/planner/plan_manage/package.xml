@@ -27,6 +27,7 @@
   <depend>visualization_msgs</depend>
 
   <exec_depend>go2_description</exec_depend>
+  <exec_depend>global_path_planner</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>local_sensing_node</exec_depend>

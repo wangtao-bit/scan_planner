@@ -25,6 +25,11 @@ def _setup(context):
     controller_mode = LaunchConfiguration("controller_mode").perform(context)
     keypoints_file = LaunchConfiguration("keypoints_file").perform(context)
     reference_path_file = LaunchConfiguration("reference_path_file").perform(context)
+    enable_global_planner = _as_bool(
+        LaunchConfiguration("enable_global_planner").perform(context)
+    )
+    pcd_map_file = LaunchConfiguration("pcd_map_file").perform(context)
+    global_planner_pcd = LaunchConfiguration("global_planner_pcd").perform(context)
     navi_mode = int(LaunchConfiguration("navi_mode").perform(context))
     if sensor_type not in ("lidar", "depth"):
         raise RuntimeError("sensor_type must be 'lidar' or 'depth'")
@@ -42,6 +47,22 @@ def _setup(context):
         raise RuntimeError(
             "reference_path_file must reference an existing ROS 2 parameter YAML"
         )
+    if enable_global_planner and navi_mode != 3:
+        raise RuntimeError("enable_global_planner is only valid when navi_mode=3")
+    if enable_global_planner and reference_path_file:
+        raise RuntimeError(
+            "enable_global_planner and reference_path_file are mutually exclusive"
+        )
+    global_pcd = global_planner_pcd or pcd_map_file
+    if enable_global_planner and (not global_pcd or not os.path.isfile(global_pcd)):
+        raise RuntimeError(
+            "enable_global_planner requires global_planner_pcd or pcd_map_file "
+            "to reference an existing PCD"
+        )
+    global_planner_yaml = ""
+    if enable_global_planner:
+        gp_share = get_package_share_directory("global_path_planner")
+        global_planner_yaml = os.path.join(gp_share, "config", "global_planner.yaml")
 
     mode_default_init = (-19.0, 1.0, 0.25) if navi_mode == 1 else (-5.5, 5.5, 0.5)
     initial_position = []
@@ -109,7 +130,7 @@ def _setup(context):
                 {
                     "robot_description": Command(
                         ["xacro ", os.path.join(go2_share, "xacro", "robot.xacro"),
-                         " use_gazebo:=false"]
+                         " use_gazebo:=true"]
                     )
                 },
             ],
@@ -172,7 +193,27 @@ def _setup(context):
                 )
             )
 
-    if reference_path_file:
+    if enable_global_planner:
+        actions.append(
+            Node(
+                package="global_path_planner",
+                executable="global_path_planner_node",
+                name="global_path_planner_node",
+                output="screen",
+                parameters=[
+                    global_planner_yaml,
+                    common,
+                    {"pcd_file": global_pcd},
+                ],
+                remappings=[
+                    ("body_pose", body_pose),
+                    ("goal", "/move_base_simple/goal"),
+                    ("clicked_point", "/clicked_point"),
+                    ("initial_path", "/initial_path"),
+                ],
+            )
+        )
+    elif reference_path_file:
         actions.append(
             Node(
                 package="scan_planner",
@@ -231,6 +272,12 @@ def generate_launch_description():
             DeclareLaunchArgument("controller_mode", default_value="closed_loop"),
             DeclareLaunchArgument("keypoints_file", default_value=""),
             DeclareLaunchArgument("reference_path_file", default_value=""),
+            DeclareLaunchArgument("enable_global_planner", default_value="false"),
+            DeclareLaunchArgument(
+                "global_planner_pcd",
+                default_value="",
+                description="PCD for Mode 3 global planner; defaults to pcd_map_file",
+            ),
             DeclareLaunchArgument("use_gpu", default_value="false"),
             DeclareLaunchArgument("use_pcd_map", default_value="false"),
             DeclareLaunchArgument("pcd_map_file", default_value=""),

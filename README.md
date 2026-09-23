@@ -74,6 +74,8 @@ ros2 launch scan_planner rviz.launch.py
 ```
 ### 2.2、使用 `map.pcd` 运行 Mode 3 跨层开环演示(注意替换自己的路径)：
 
+**方式 A — 手写参考路径 YAML：**
+
 ```bash
 source install/setup.bash
 ros2 launch scan_planner run.launch.py \
@@ -83,6 +85,20 @@ ros2 launch scan_planner run.launch.py \
   pcd_map_file:=/your_map_location/map.pcd \
   reference_path_file:=/your_project_location/src/planner/plan_manage/config/reference_path.map.yaml
 ```
+
+**方式 B — PCD 全局规划作先验（RViz 点目标）：**
+
+```bash
+source install/setup.bash
+ros2 launch scan_planner run.launch.py \
+  is_real_world:=false navi_mode:=3 sensor_type:=lidar \
+  controller_mode:=open_loop use_gpu:=false \
+  use_pcd_map:=true \
+  pcd_map_file:=/your_map_location/map.pcd \
+  enable_global_planner:=true
+```
+
+在 RViz 用 **2D Goal Pose** 或 **Publish Point**（点 `/support_map` / 地图）选终点；`global_path_planner` 读同一 PCD，在支撑面上做 2.5D A*，结果发到 `/initial_path`。与 `reference_path_file` 互斥。Publish Point 走 `/clicked_point`，带真实 z，多层时通常比 2D Goal 更稳。
 
 示例参考路径从 `(-5.5, 5.5, 0.10)` 沿地图坡道上升到
 `(-5.5, -4.5, 1.55)`。路径文件中的 `z` 是地面/路线高度，规划器会再加上
@@ -98,7 +114,7 @@ RViz2 配置已适配 ROS 2 Humble：Go2 的 RobotModel 使用现有的 `meshes/
 - `navi_mode:=2`：按照 ROS 2 参数文件中预设的 `fsm.waypoints` 路径点序列导航
 - `navi_mode:=3`：订阅 `initial_path` 话题获取全局路径，并在局部范围内进行避障
 
-控制器模式分为 `open_loop`（开环）和 `closed_loop`（闭环）两种。本次移植保留的核心启动参数包括：`is_real_world`、`navi_mode`、`sensor_type`、`controller_mode`、`use_gpu`、`use_pcd_map` 和 `pcd_map_file`。
+控制器模式分为 `open_loop`（开环）和 `closed_loop`（闭环）两种。本次移植保留的核心启动参数包括：`is_real_world`、`navi_mode`、`sensor_type`、`controller_mode`、`use_gpu`、`use_pcd_map`、`pcd_map_file`、`enable_global_planner`。
 
 与原作者实现保持一致，`closed_loop` 通过平面 `cmd_vel` 跟踪 `x/y/yaw`，
 适用于二维仿真或真机底盘接口；多楼层仿真应使用 `open_loop`，直接按规划得到的
@@ -106,9 +122,9 @@ RViz2 配置已适配 ROS 2 Humble：Go2 的 RobotModel 使用现有的 `meshes/
 默认从 `(-19.0, 1.0, 0.25)` 启动，仍可用 `init_x`、`init_y`、`init_z` 覆盖。
 
 Mode 3 默认等待外部节点发布 `/initial_path`。也可以通过
-`reference_path_file` 启动仓库内的演示发布器；该发布器会等待首个
-`body_pose` 和规划器订阅者就绪后发布一次路径。路径至少需要两个 xyz 点，
-相邻点会按三维距离 `0.5 m` 降采样，并始终保留最终点。
+`reference_path_file` 启动仓库内的演示发布器；或设 `enable_global_planner:=true`
+由 `global_path_planner` 从 PCD 规划后发布（与 YAML 发布器互斥）。路径至少需要两个
+xyz 点，相邻点会按三维距离 `0.5 m` 降采样，并始终保留最终点。
 
 当 `use_pcd_map:=true` 时，必须提供已有的 PCD 点云地图文件：
 
