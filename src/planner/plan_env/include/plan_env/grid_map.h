@@ -192,6 +192,7 @@ public:
   bool odomValid();
   void getRegion(Eigen::Vector3d& ori, Eigen::Vector3d& size);
   inline double getResolution();
+  inline double getDoubleCylinderRadius() const { return mp_.double_cylinder_radius_; }
   Eigen::Vector3d getOrigin();
   int getVoxelNum();
 

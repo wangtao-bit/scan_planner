@@ -21,6 +21,14 @@ namespace scan_planner
     dist0_ = get_double("optimization.dist0", -1.0);
     max_vel_ = get_double("optimization.max_vel", -1.0);
     max_acc_ = get_double("optimization.max_acc", -1.0);
+    corridor_width_ = get_double("optimization.corridor_width", 1.0);
+    corridor_max_range_ = get_double("optimization.corridor_max_range", 1.5);
+    corridor_margin_ = get_double("optimization.corridor_margin", 0.05);
+    lambda_corridor_ = get_double("optimization.lambda_corridor", 1.0);
+    lambda_clearance_ = get_double("optimization.lambda_clearance", 0.05);
+    RCLCPP_INFO(rclcpp::get_logger("bspline_opt"),
+                "[corridor] params width=%.3f max_range=%.3f margin=%.3f lambda_cor=%.3f lambda_clr=%.3f dist0=%.3f",
+                corridor_width_, corridor_max_range_, corridor_margin_, lambda_corridor_, lambda_clearance_, dist0_);
     if (!node->has_parameter("optimization.order")) node->declare_parameter<int>("optimization.order", 3);
     order_ = static_cast<int>(node->get_parameter("optimization.order").as_int());
   }
@@ -61,6 +69,7 @@ namespace scan_planner
   std::vector<std::vector<Eigen::Vector3d>> BsplineOptimizer::initControlPoints(Eigen::MatrixXd &init_points, bool flag_first_init /*= true*/)
   {
 
+    // 初始化控制点
     if (flag_first_init)
     {
       cps_.clearance = dist0_;
@@ -81,12 +90,24 @@ namespace scan_planner
     {
       for (double a = 1.0; a >= 0.0; a -= step_size)
       {
+        // 线性插值
         Eigen::Vector3d sample_pt = a * init_points.col(i - 1) + (1 - a) * init_points.col(i);
+        // 估计航向角
         double sample_yaw = estimateSegmentYaw(init_points.col(i - 1), init_points.col(i));
+        // 碰撞检测
         occ = grid_map_->getInflateOccupancy(sample_pt, sample_yaw);
         // cout << setprecision(5);
         // cout << (a * init_points.col(i-1) + (1-a) * init_points.col(i)).transpose() << " occ1=" << occ << endl;
-
+        // in_id: 起点
+        // out_id: 终点
+        // flag_got_start: 是否已经找到起点
+        // flag_got_end: 是否已经找到终点
+        // flag_got_end_maybe: 是否可能找到终点
+        // same_occ_state_times: 连续碰撞状态的次数
+        // last_occ: 上一个状态是否碰撞
+        // occ: 当前状态是否碰撞
+        // flag_got_start: 是否已经找到起点
+        // flag_got_end: 是否已经找到终点
         if (occ && !last_occ)
         {
           if (same_occ_state_times > ENOUGH_INTERVAL || i == order_)
@@ -131,11 +152,15 @@ namespace scan_planner
 
     /*** a star search ***/
     vector<vector<Eigen::Vector3d>> a_star_paths;
+    // 遍历所有碰撞段 
     for (size_t i = 0; i < segment_ids.size(); ++i)
     {
       //cout << "in=" << in.transpose() << " out=" << out.transpose() << endl;
+      // 碰撞段的起点和终点
       Eigen::Vector3d in(init_points.col(segment_ids[i].first)), out(init_points.col(segment_ids[i].second));
+      // A*搜索
       ASTAR_RET ret = a_star_->AstarSearch(grid_map_->getResolution(), in, out);
+      // 搜索成功
       if (ret == ASTAR_RET::SUCCESS)
       {
         vector<Eigen::Vector3d> path = a_star_->getPath();
@@ -155,6 +180,7 @@ namespace scan_planner
 
     /*** calculate bounds ***/
     int id_low_bound, id_up_bound;
+    // 碰撞区域对应的 B-spline 优化控制点范围
     vector<std::pair<int, int>> bounds(segment_ids.size());
     for (size_t i = 0; i < segment_ids.size(); i++)
     {
@@ -202,6 +228,7 @@ namespace scan_planner
       //cout << "i = " << i << " first = " << segment_ids[i].first << " second = " << segment_ids[i].second << endl;
       if (num_points < minimum_points)
       {
+        // 每侧增加的控制点数
         double add_points_each_side = (int)(((minimum_points - num_points) + 1.0f) / 2);
 
         final_segment_ids[i].first = segment_ids[i].first - add_points_each_side >= bounds[i].first ? segment_ids[i].first - add_points_each_side : bounds[i].first;
@@ -257,7 +284,7 @@ namespace scan_planner
             const double denom = ctrl_pts_law.dot(a_star_paths[i][Astar_id] - a_star_paths[i][last_Astar_id]);
             if (std::abs(denom) < 1e-8)
               break;
-
+            // 交点
             intersection_point =
                 a_star_paths[i][Astar_id] +
                 ((a_star_paths[i][Astar_id] - a_star_paths[i][last_Astar_id]) *
@@ -279,6 +306,7 @@ namespace scan_planner
           {
             for (double a = length; a >= 0.0; a -= grid_map_->getResolution())
             {
+              // 线性插值
               Eigen::Vector3d sample_pt = (a / length) * intersection_point + (1 - a / length) * cps_.points.col(j);
               double sample_yaw = estimateControlPointYaw(cps_.points, j);
               occ = grid_map_->getInflateOccupancy(sample_pt, sample_yaw);
@@ -297,11 +325,13 @@ namespace scan_planner
       }
 
       /* Corner case: the segment length is too short. Here the control points may outside the A* path, leading to opposite gradient direction. So I have to take special care of it */
+      // 只有两个控制点时，需要特殊处理
       if (segment_ids[i].second - segment_ids[i].first == 1)
       {
         Eigen::Vector3d ctrl_pts_law(cps_.points.col(segment_ids[i].second) - cps_.points.col(segment_ids[i].first)), intersection_point;
         Eigen::Vector3d middle_point = (cps_.points.col(segment_ids[i].second) + cps_.points.col(segment_ids[i].first)) / 2;
         int Astar_id = a_star_paths[i].size() / 2, last_Astar_id; // Let "Astar_id = id_of_the_most_far_away_Astar_point" will be better, but it needs more computation
+        // 定义中垂
         double val = (a_star_paths[i][Astar_id] - middle_point).dot(ctrl_pts_law), last_val = val;
         while (Astar_id >= 0 && Astar_id < (int)a_star_paths[i].size())
         {
@@ -399,6 +429,235 @@ namespace scan_planner
     return cost;
   }
 
+  bool BsplineOptimizer::pointInCorridor(int idx) const
+  {
+    return idx >= 0 && idx < static_cast<int>(cps_.in_corridor.size()) && cps_.in_corridor[idx];
+  }
+
+  bool BsplineOptimizer::corridorPointDodging(int idx) const
+  {
+    if (!pointInCorridor(idx) || idx >= static_cast<int>(cps_.direction.size()))
+      return false;
+    return !cps_.direction[idx].empty();
+  }
+  // 从 origin 出发，沿着 normal 指定的方向，在栅格地图里做一次射线扫描，寻找这个方向上遇到的第一个障碍体素，并把障碍体素中心坐标返回到 hit
+  bool BsplineOptimizer::castToRawOccupancy(const Eigen::Vector3d &origin, const Eigen::Vector3d &normal,
+                                            Eigen::Vector3d &hit) const
+  {
+    const double res = grid_map_->getResolution();
+    if (res <= 1e-6 || corridor_max_range_ <= res)
+      return false;
+    // 射线终点
+    const Eigen::Vector3d target = origin + normal * corridor_max_range_;
+    RayCaster caster;
+    if (!caster.setInput(origin / res, target / res))
+      return false;
+
+    Eigen::Vector3d voxel;
+    bool skipped_start = false;
+    const int max_steps = static_cast<int>(corridor_max_range_ / res) + 3;
+    for (int step = 0; step < max_steps; ++step)
+    {
+      if (!caster.step(voxel))
+        return false;
+
+      const Eigen::Vector3d pos = (voxel + Eigen::Vector3d(0.5, 0.5, 0.5)) * res;
+      if (!skipped_start)
+      {
+        skipped_start = true;
+        continue;
+      }
+      if (!grid_map_->isInMap(pos))
+        return false;
+      if (grid_map_->getOccupancy(pos) != 1)
+        continue;
+
+      const double dist = (pos - origin).dot(normal);
+      if (dist <= 1e-3)
+        continue;
+
+      hit = pos;
+      return true;
+    }
+    return false;
+  }
+  // 对 B-spline 轨迹的控制点进行左右两侧的走廊检测，并判断哪些控制点可以启用走廊约束
+  void BsplineOptimizer::updateCorridorAnchors(const char *stage)
+  {
+    // 初始化
+    const int n = cps_.size;
+    cps_.corridor_hit_left.assign(n, Eigen::Vector3d::Zero());
+    cps_.corridor_hit_right.assign(n, Eigen::Vector3d::Zero());
+    cps_.corridor_normal_left.assign(n, Eigen::Vector3d::Zero());
+    cps_.corridor_normal_right.assign(n, Eigen::Vector3d::Zero());
+    cps_.in_corridor.assign(n, 0); 
+
+    if (!grid_map_)
+    {
+      RCLCPP_WARN(rclcpp::get_logger("bspline_opt"), "[corridor] %s no grid map, all points stay on dist0/fitness", stage);
+      return;
+    }
+    if (corridor_width_ <= 0.0 || corridor_max_range_ <= 0.0)
+    {
+      RCLCPP_WARN(rclcpp::get_logger("bspline_opt"),
+                  "[corridor] %s disabled: width=%.3f max_range=%.3f", stage, corridor_width_, corridor_max_range_);
+      return;
+    }
+
+    const double radius = std::max(0.0, grid_map_->getDoubleCylinderRadius());
+    const double d_des = radius + corridor_margin_;
+    // 首尾控制点不会参与这次走廊检测
+    const int begin = std::min(order_, n);
+    const int end = std::max(begin, n - order_);
+    int corridor_count = 0;
+    int miss_left = 0, miss_right = 0, too_wide = 0;
+
+    RCLCPP_INFO(rclcpp::get_logger("bspline_opt"),
+                "[corridor] %s measure points [%d, %d) width_th=%.3f range=%.3f radius=%.3f margin=%.3f d_des=%.3f cps=%d",
+                stage, begin, end, corridor_width_, corridor_max_range_, radius, corridor_margin_, d_des, n);
+
+    for (int i = begin; i < end; ++i)
+    {
+      const Eigen::Vector3d q = cps_.points.col(i);
+      const double yaw = estimateControlPointYaw(cps_.points, i);
+      const Eigen::Vector3d left_n(-std::sin(yaw), std::cos(yaw), 0.0);
+      const Eigen::Vector3d right_n = -left_n;
+
+      Eigen::Vector3d hit_l, hit_r;
+      const bool got_l = castToRawOccupancy(q, left_n, hit_l);
+      const bool got_r = castToRawOccupancy(q, right_n, hit_r);
+      const double d_l = got_l ? (hit_l - q).dot(left_n) : -1.0;
+      const double d_r = got_r ? (hit_r - q).dot(right_n) : -1.0;
+
+      const char *reason = "in_corridor";
+      if (!got_l || !got_r)
+      {
+        if (!got_l)
+          ++miss_left;
+        if (!got_r)
+          ++miss_right;
+        reason = !got_l && !got_r ? "both_miss" : (!got_l ? "left_miss" : "right_miss");
+      }
+      else if (d_l + d_r >= corridor_width_)
+      {
+        ++too_wide;
+        reason = "too_wide";
+      }
+      else
+      {
+        cps_.in_corridor[i] = 1;
+        cps_.corridor_hit_left[i] = hit_l;
+        cps_.corridor_hit_right[i] = hit_r;
+        cps_.corridor_normal_left[i] = left_n;
+        cps_.corridor_normal_right[i] = right_n;
+        ++corridor_count;
+      }
+
+      RCLCPP_INFO(rclcpp::get_logger("bspline_opt"),
+                  "[corridor] %s i=%d pos=(%.3f, %.3f, %.3f) yaw=%.3f dL=%.3f dR=%.3f width=%.3f hitL=(%.3f, %.3f) hitR=(%.3f, %.3f) -> %s%s",
+                  stage, i, q.x(), q.y(), q.z(), yaw, d_l, d_r, (got_l && got_r) ? d_l + d_r : -1.0,
+                  got_l ? hit_l.x() : 0.0, got_l ? hit_l.y() : 0.0, got_r ? hit_r.x() : 0.0, got_r ? hit_r.y() : 0.0,
+                  reason,
+                  !cps_.in_corridor[i] ? ", keep dist0/fitness"
+                  : corridorPointDodging(i) ? ", collision anchor, keep dist0/fitness"
+                                            : ", skip dist0 and fitness");
+    }
+
+    RCLCPP_INFO(rclcpp::get_logger("bspline_opt"),
+                "[corridor] %s summary corridor=%d too_wide=%d miss_left=%d miss_right=%d checked=%d",
+                stage, corridor_count, too_wide, miss_left, miss_right, end - begin);
+  }
+
+  void BsplineOptimizer::calcCorridorCost(const Eigen::MatrixXd &q, double &cost_center, double &cost_clearance,
+                                          Eigen::MatrixXd &gradient_center, Eigen::MatrixXd &gradient_clearance) const
+  {
+    cost_center = 0.0;
+    cost_clearance = 0.0;
+    if (!grid_map_)
+      return;
+
+    const double d_des = std::max(0.0, grid_map_->getDoubleCylinderRadius()) + corridor_margin_;
+    const int end_idx = std::min(static_cast<int>(q.cols()), cps_.size) - order_;
+    for (int i = order_; i < end_idx; ++i)
+    {
+      // 已有碰撞锚点的通道点要绕障碍，不再往通道中线拉。
+      if (!pointInCorridor(i) || corridorPointDodging(i))
+        continue;
+
+      const Eigen::Vector3d qi = q.col(i);
+      const Eigen::Vector3d &n_l = cps_.corridor_normal_left[i];
+      const Eigen::Vector3d &n_r = cps_.corridor_normal_right[i];
+      const double d_l = (cps_.corridor_hit_left[i] - qi).dot(n_l);
+      const double d_r = (cps_.corridor_hit_right[i] - qi).dot(n_r);
+      const double diff = d_l - d_r;
+      cost_center += diff * diff;
+      gradient_center.col(i) += 2.0 * diff * (-n_l + n_r);
+
+      const double err_l = d_des - d_l;
+      if (err_l > 0.0)
+      {
+        cost_clearance += err_l * err_l;
+        gradient_clearance.col(i) += 2.0 * err_l * n_l;
+      }
+      const double err_r = d_des - d_r;
+      if (err_r > 0.0)
+      {
+        cost_clearance += err_r * err_r;
+        gradient_clearance.col(i) += 2.0 * err_r * n_r;
+      }
+    }
+  }
+
+  void BsplineOptimizer::logCorridorState(const char *stage) const
+  {
+    if (!grid_map_)
+      return;
+
+    const double d_des = std::max(0.0, grid_map_->getDoubleCylinderRadius()) + corridor_margin_;
+    int count = 0;
+    for (int i = 0; i < cps_.size; ++i)
+    {
+      if (!pointInCorridor(i))
+        continue;
+      const Eigen::Vector3d q = cps_.points.col(i);
+      const double d_l = (cps_.corridor_hit_left[i] - q).dot(cps_.corridor_normal_left[i]);
+      const double d_r = (cps_.corridor_hit_right[i] - q).dot(cps_.corridor_normal_right[i]);
+      RCLCPP_INFO(rclcpp::get_logger("bspline_opt"),
+                  "[corridor] %s result i=%d pos=(%.3f, %.3f, %.3f) dL=%.3f dR=%.3f |dL-dR|=%.3f marginL=%.3f marginR=%.3f d_des=%.3f",
+                  stage, i, q.x(), q.y(), q.z(), d_l, d_r, std::abs(d_l - d_r), d_l - d_des, d_r - d_des, d_des);
+      ++count;
+    }
+    RCLCPP_INFO(rclcpp::get_logger("bspline_opt"), "[corridor] %s result points=%d", stage, count);
+  }
+
+  void BsplineOptimizer::logCostBreakdown(const char *stage, double f_combine, double f_smooth, double w_smooth,
+                                          double f_second, double w_second, const char *second_name,
+                                          double f_feas, double w_feas, double f_cor, double w_cor,
+                                          double f_clr, double w_clr, const Eigen::MatrixXd &g_smooth,
+                                          const Eigen::MatrixXd &g_center, const Eigen::MatrixXd &g_clearance) const
+  {
+    if (iter_num_ % 25 != 0)
+      return;
+
+    double corridor_grad = 0.0;
+    double smooth_grad = 0.0;
+    int corridor_points = 0;
+    const int end_idx = std::min(static_cast<int>(g_smooth.cols()), cps_.size) - order_;
+    for (int i = order_; i < end_idx; ++i)
+    {
+      if (!pointInCorridor(i))
+        continue;
+      ++corridor_points;
+      corridor_grad += (w_cor * g_center.col(i) + w_clr * g_clearance.col(i)).head<2>().norm();
+      smooth_grad += (w_smooth * g_smooth.col(i)).head<2>().norm();
+    }
+
+    RCLCPP_INFO(rclcpp::get_logger("bspline_opt"),
+                "[corridor] %s cost iter=%d f=%.4f smooth=%.4f(w=%.4f) %s=%.4f(w=%.4f) feas=%.4f(w=%.4f) center=%.4f(w=%.4f) clear=%.4f(w=%.4f) corridor_pts=%d grad_xy cor=%.4f smooth=%.4f",
+                stage, iter_num_, f_combine, f_smooth, w_smooth, second_name, f_second, w_second, f_feas, w_feas,
+                f_cor, w_cor, f_clr, w_clr, corridor_points, corridor_grad, smooth_grad);
+  }
+
   void BsplineOptimizer::calcDistanceCostRebound(const Eigen::MatrixXd &q, double &cost,
                                                  Eigen::MatrixXd &gradient, int iter_num, double smoothness_cost)
   {
@@ -416,6 +675,10 @@ namespace scan_planner
     /*** calculate distance cost and gradient ***/
     for (auto i = order_; i < end_idx; ++i)
     {
+      // 空通道才关掉 dist0。通道里挡住轨迹的障碍会留下碰撞锚点，这些点继续外推。
+      if (pointInCorridor(i) && !corridorPointDodging(i))
+        continue;
+
       for (size_t j = 0; j < cps_.direction[i].size(); ++j)
       {
         double dist = (cps_.points.col(i) - cps_.base_point[i][j]).dot(cps_.direction[i][j]);
@@ -451,6 +714,9 @@ namespace scan_planner
     double a2 = 25, b2 = 1;
     for (auto i = order_ - 1; i < end_idx + 1; ++i)
     {
+      if (pointInCorridor(i) && !corridorPointDodging(i))
+        continue;
+
       Eigen::Vector3d x = (q.col(i - 1) + 4 * q.col(i) + q.col(i + 1)) / 6.0 - ref_pts_[i - 1];
       Eigen::Vector3d v = (ref_pts_[i] - ref_pts_[i - 2]).normalized();
 
@@ -964,8 +1230,10 @@ namespace scan_planner
   bool BsplineOptimizer::rebound_optimize()
   {
     iter_num_ = 0;
+    // 固定轨迹端点，只优化中间的控制点
     int start_id = order_;
     int end_id = this->cps_.size - order_;
+    // 优化变量数量
     variable_num_ = 3 * (end_id - start_id);
     double final_cost;
 
@@ -973,9 +1241,9 @@ namespace scan_planner
     auto t1 = t0;
     auto t2 = t0;
     int restart_nums = 0, rebound_times = 0;
-    ;
     bool flag_force_return, flag_occ, success;
     new_lambda2_ = lambda2_;
+    // 最大restart次数
     constexpr int MAX_RESART_NUMS_SET = 3;
     do
     {
@@ -985,6 +1253,14 @@ namespace scan_planner
       flag_force_return = false;
       flag_occ = false;
       success = false;
+
+      updateCorridorAnchors(restart_nums == 0 ? "rebound" : "rebound-restart");
+      if (restart_nums > 0)
+      {
+        RCLCPP_INFO(rclcpp::get_logger("bspline_opt"),
+                    "[corridor] rebound restart=%d lambda_collision=%.3f; corridor points still skip dist0",
+                    restart_nums, new_lambda2_);
+      }
 
       double q[variable_num_];
       memcpy(q, cps_.points.data() + 3 * start_id, variable_num_ * sizeof(q[0]));
@@ -1042,11 +1318,29 @@ namespace scan_planner
         if (!flag_occ)
         {
           printf("\033[32miter(+1)=%d,time(ms)=%5.3f,total_t(ms)=%5.3f,cost=%5.3f\n\033[0m", iter_num_, time_ms, total_time_ms, final_cost);
+          logCorridorState("rebound-ok");
           success = true;
         }
         else // restart
         {
           restart_nums++;
+          logCorridorState("rebound-still-colliding");
+          int corridor_hits = 0;
+          for (int i = order_; i < cps_.size - order_; ++i)
+          {
+            if (!pointInCorridor(i))
+              continue;
+            const int occ = grid_map_->getInflateOccupancy(cps_.points.col(i), estimateControlPointYaw(cps_.points, i));
+            if (occ == 0)
+              continue;
+            ++corridor_hits;
+            RCLCPP_WARN(rclcpp::get_logger("bspline_opt"),
+                        "[corridor] rebound colliding control point i=%d pos=(%.3f, %.3f, %.3f) inflate_occ=%d",
+                        i, cps_.points(0, i), cps_.points(1, i), cps_.points(2, i), occ);
+          }
+          RCLCPP_WARN(rclcpp::get_logger("bspline_opt"),
+                      "[corridor] rebound still colliding, restart=%d corridor_points_in_inflation=%d",
+                      restart_nums, corridor_hits);
           initControlPoints(cps_.points, false);
           new_lambda2_ *= 2;
 
@@ -1057,6 +1351,10 @@ namespace scan_planner
       {
         flag_force_return = true;
         rebound_times++;
+        logCorridorState("rebound-early-exit");
+        RCLCPP_INFO(rclcpp::get_logger("bspline_opt"),
+                    "[corridor] rebound early-exit times=%d iter=%d force_stop=%d",
+                    rebound_times, iter_num_, static_cast<int>(force_stop_type_));
         cout << "iter=" << iter_num_ << ",time(ms)=" << time_ms << ",rebound." << endl;
       }
       else
@@ -1069,6 +1367,9 @@ namespace scan_planner
     } while ((flag_occ && restart_nums < MAX_RESART_NUMS_SET) ||
              (flag_force_return && force_stop_type_ == STOP_FOR_REBOUND && rebound_times <= 20));
 
+    RCLCPP_INFO(rclcpp::get_logger("bspline_opt"),
+                "[corridor] rebound finished success=%d restarts=%d early_exits=%d",
+                success ? 1 : 0, restart_nums, rebound_times);
     return success;
   }
 
@@ -1089,6 +1390,7 @@ namespace scan_planner
     int iter_count = 0;
     do
     {
+      updateCorridorAnchors("refine");
       lbfgs::lbfgs_parameter_t lbfgs_params;
       lbfgs::lbfgs_load_default_parameters(&lbfgs_params);
       lbfgs_params.mem_size = 16;
@@ -1132,8 +1434,14 @@ namespace scan_planner
         }
       }
 
+      logCorridorState(flag_safe ? "refine-ok" : "refine-still-colliding");
       if (!flag_safe)
+      {
+        RCLCPP_WARN(rclcpp::get_logger("bspline_opt"),
+                    "[corridor] refine trajectory still hits inflation, lambda_fitness %.3f -> %.3f",
+                    lambda4_, lambda4_ * 2.0);
         lambda4_ *= 2;
+      }
 
       iter_count++;
     } while (!flag_safe && iter_count <= 0);
@@ -1151,21 +1459,28 @@ namespace scan_planner
     memcpy(cps_.points.data() + 3 * order_, x, n * sizeof(x[0]));
 
     /* ---------- evaluate cost and gradient ---------- */
-    double f_smoothness, f_distance, f_feasibility;
+    double f_smoothness, f_distance, f_feasibility, f_center, f_clearance;
 
     Eigen::MatrixXd g_smoothness = Eigen::MatrixXd::Zero(3, cps_.size);
     Eigen::MatrixXd g_distance = Eigen::MatrixXd::Zero(3, cps_.size);
     Eigen::MatrixXd g_feasibility = Eigen::MatrixXd::Zero(3, cps_.size);
+    Eigen::MatrixXd g_center = Eigen::MatrixXd::Zero(3, cps_.size);
+    Eigen::MatrixXd g_clearance = Eigen::MatrixXd::Zero(3, cps_.size);
 
     calcSmoothnessCost(cps_.points, f_smoothness, g_smoothness);
     calcDistanceCostRebound(cps_.points, f_distance, g_distance, iter_num_, f_smoothness);
     calcFeasibilityCost(cps_.points, f_feasibility, g_feasibility);
+    calcCorridorCost(cps_.points, f_center, f_clearance, g_center, g_clearance);
 
-    f_combine = lambda1_ * f_smoothness + new_lambda2_ * f_distance + lambda3_ * f_feasibility;
-    //printf("origin %f %f %f %f\n", f_smoothness, f_distance, f_feasibility, f_combine);
+    f_combine = lambda1_ * f_smoothness + new_lambda2_ * f_distance + lambda3_ * f_feasibility +
+                lambda_corridor_ * f_center + lambda_clearance_ * f_clearance;
+    logCostBreakdown("rebound", f_combine, f_smoothness, lambda1_, f_distance, new_lambda2_, "dist",
+                     f_feasibility, lambda3_, f_center, lambda_corridor_, f_clearance, lambda_clearance_,
+                     g_smoothness, g_center, g_clearance);
 
     Eigen::MatrixXd grad_3D = lambda1_ * g_smoothness + new_lambda2_ * g_distance +
-                              lambda3_ * g_feasibility;
+                              lambda3_ * g_feasibility + lambda_corridor_ * g_center +
+                              lambda_clearance_ * g_clearance;
     grad_3D.row(2).setZero();
     memcpy(grad, grad_3D.data() + 3 * order_, n * sizeof(grad[0]));
   }
@@ -1176,24 +1491,31 @@ namespace scan_planner
     memcpy(cps_.points.data() + 3 * order_, x, n * sizeof(x[0]));
 
     /* ---------- evaluate cost and gradient ---------- */
-    double f_smoothness, f_fitness, f_feasibility;
+    double f_smoothness, f_fitness, f_feasibility, f_center, f_clearance;
 
     Eigen::MatrixXd g_smoothness = Eigen::MatrixXd::Zero(3, cps_.points.cols());
     Eigen::MatrixXd g_fitness = Eigen::MatrixXd::Zero(3, cps_.points.cols());
     Eigen::MatrixXd g_feasibility = Eigen::MatrixXd::Zero(3, cps_.points.cols());
+    Eigen::MatrixXd g_center = Eigen::MatrixXd::Zero(3, cps_.points.cols());
+    Eigen::MatrixXd g_clearance = Eigen::MatrixXd::Zero(3, cps_.points.cols());
 
     //time_satrt = ros::Time::now();
 
     calcSmoothnessCost(cps_.points, f_smoothness, g_smoothness);
     calcFitnessCost(cps_.points, f_fitness, g_fitness);
     calcFeasibilityCost(cps_.points, f_feasibility, g_feasibility);
+    calcCorridorCost(cps_.points, f_center, f_clearance, g_center, g_clearance);
 
     /* ---------- convert to solver format...---------- */
-    f_combine = lambda1_ * f_smoothness + lambda4_ * f_fitness + lambda3_ * f_feasibility;
-    // printf("origin %f %f %f %f\n", f_smoothness, f_fitness, f_feasibility, f_combine);
+    f_combine = lambda1_ * f_smoothness + lambda4_ * f_fitness + lambda3_ * f_feasibility +
+                lambda_corridor_ * f_center + lambda_clearance_ * f_clearance;
+    logCostBreakdown("refine", f_combine, f_smoothness, lambda1_, f_fitness, lambda4_, "fitness",
+                     f_feasibility, lambda3_, f_center, lambda_corridor_, f_clearance, lambda_clearance_,
+                     g_smoothness, g_center, g_clearance);
 
     Eigen::MatrixXd grad_3D = lambda1_ * g_smoothness + lambda4_ * g_fitness +
-                              lambda3_ * g_feasibility;
+                              lambda3_ * g_feasibility + lambda_corridor_ * g_center +
+                              lambda_clearance_ * g_clearance;
     grad_3D.row(2).setZero();
     memcpy(grad, grad_3D.data() + 3 * order_, n * sizeof(grad[0]));
   }

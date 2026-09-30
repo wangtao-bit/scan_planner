@@ -62,6 +62,16 @@ scan_planner_node:
     optimization.lambda_feasibility: 0.1
     optimization.lambda_fitness: 1.0
     optimization.dist0: 0.2
+    # 两侧都打到墙且宽度低于该值（米）时，该控制点改用居中/离墙代价，停用 dist0 和 fitness
+    # 1.5 m 走廊的实测宽度大约 1.5–1.7 m，阈值要高于它才会被判成窄通道
+    optimization.corridor_width: 2.0
+    # 单侧射线最远搜索距离（米）。超出仍无墙则该侧不算窄通道
+    optimization.corridor_max_range: 1.5
+    # 期望离墙距离 = double_cylinder_radius + margin（米）
+    optimization.corridor_margin: 0.05
+    optimization.lambda_corridor: 1.0
+    # 比 lambda_smooth 小一个数量级，避免离墙项压过平滑
+    optimization.lambda_clearance: 0.05
     optimization.max_vel: 0.75
     optimization.max_acc: 0.5
     optimization.order: 3

@@ -25,6 +25,12 @@ namespace scan_planner
     std::vector<std::vector<Eigen::Vector3d>> base_point; // The point at the start of the direction vector (collision point)
     std::vector<std::vector<Eigen::Vector3d>> direction;  // Direction vector, must be normalized.
     std::vector<bool> flag_temp;                          // A flag that used in many places. Initialize it every time before using it.
+    // Frozen lateral wall hits for one L-BFGS run. in_corridor is 0/1 per control point.
+    std::vector<Eigen::Vector3d> corridor_hit_left;
+    std::vector<Eigen::Vector3d> corridor_hit_right;
+    std::vector<Eigen::Vector3d> corridor_normal_left;
+    std::vector<Eigen::Vector3d> corridor_normal_right;
+    std::vector<char> in_corridor;
     // std::vector<bool> occupancy;
 
     void resize(const int size_set)
@@ -34,12 +40,22 @@ namespace scan_planner
       base_point.clear();
       direction.clear();
       flag_temp.clear();
+      corridor_hit_left.clear();
+      corridor_hit_right.clear();
+      corridor_normal_left.clear();
+      corridor_normal_right.clear();
+      in_corridor.clear();
       // occupancy.clear();
 
       points.resize(3, size_set);
       base_point.resize(size);
       direction.resize(size);
       flag_temp.resize(size);
+      corridor_hit_left.resize(size, Eigen::Vector3d::Zero());
+      corridor_hit_right.resize(size, Eigen::Vector3d::Zero());
+      corridor_normal_left.resize(size, Eigen::Vector3d::Zero());
+      corridor_normal_right.resize(size, Eigen::Vector3d::Zero());
+      in_corridor.resize(size, 0);
       // occupancy.resize(size);
     }
   };
@@ -117,6 +133,11 @@ namespace scan_planner
     //
     double dist0_;             // safe distance
     double max_vel_, max_acc_; // dynamic limits
+    double lambda_corridor_;   // (d_L - d_R)^2 weight, narrow corridor only
+    double lambda_clearance_;  // lateral clearance weight, narrow corridor only
+    double corridor_width_;    // both-wall width below which a point is a corridor
+    double corridor_max_range_;
+    double corridor_margin_;   // extra gap beyond the cylinder radius
 
     int variable_num_;              // optimization variables
     int iter_num_;                  // iteration of the solver
@@ -138,6 +159,19 @@ namespace scan_planner
                              Eigen::MatrixXd &gradient);
     void calcDistanceCostRebound(const Eigen::MatrixXd &q, double &cost, Eigen::MatrixXd &gradient, int iter_num, double smoothness_cost);
     void calcFitnessCost(const Eigen::MatrixXd &q, double &cost, Eigen::MatrixXd &gradient);
+    bool castToRawOccupancy(const Eigen::Vector3d &origin, const Eigen::Vector3d &normal, Eigen::Vector3d &hit) const;
+    void updateCorridorAnchors(const char *stage);
+    void calcCorridorCost(const Eigen::MatrixXd &q, double &cost_center, double &cost_clearance,
+                          Eigen::MatrixXd &gradient_center, Eigen::MatrixXd &gradient_clearance) const;
+    bool pointInCorridor(int idx) const;
+    // 窄通道点若已有 A* 碰撞锚点，说明通道内有障碍挡住当前轨迹。此时不用居中，改回 dist0 和 fitness。
+    bool corridorPointDodging(int idx) const;
+    void logCorridorState(const char *stage) const;
+    void logCostBreakdown(const char *stage, double f_combine, double f_smooth, double w_smooth,
+                          double f_second, double w_second, const char *second_name,
+                          double f_feas, double w_feas, double f_cor, double w_cor,
+                          double f_clr, double w_clr, const Eigen::MatrixXd &g_smooth,
+                          const Eigen::MatrixXd &g_center, const Eigen::MatrixXd &g_clearance) const;
     bool check_collision_and_rebound(void);
     double estimateSegmentYaw(const Eigen::Vector3d &from, const Eigen::Vector3d &to) const;
     double estimateControlPointYaw(const Eigen::MatrixXd &q, int id) const;
