@@ -1,7 +1,7 @@
 global_path_planner_node:
   ros__parameters:
     frame_id: world
-    resolution: 0.2 # 粗体素边长（米）。PCD 先按该分辨率占格，再在 (x,y) 上提支撑面
+    resolution: 0.1 # 粗体素边长（米）。PCD 先按该分辨率占格，再在 (x,y) 上提支撑面
     min_clearance: 0.5 # 撑面上方必须留空的净空高度（米）
     # Align with scan_planner grid_map.double_cylinder_radius / body_height.
     robot_radius: 0.25
@@ -15,6 +15,10 @@ global_path_planner_node:
     goal_z_tolerance: 0.6 # 终点只保留与目标高度差 ≤ goal_z_tolerance 的支撑
     # 贴边/楼梯侧爬惩罚：不兼容邻格越多代价越大，路径更靠可通行区域中心
     edge_cost_weight: 2.0
+    # 邻居支撑高度差大于该值（米）记为台阶或断坎。分辨率 0.1 时平地量化噪声是 0.1，要高于它
+    stair_rise: 0.10
+    # 台阶/断坎周围的软禁区（米）。代价在边上为 1，到这个距离线性降为 0，路径会离开第一级台阶
+    stair_margin: 0.0
     path_min_distance: 0.5 # 路径点间最小距离（米）
     use_odom_as_start: true
     plan_on_startup: false 

@@ -37,6 +37,8 @@ public:
     declare_parameter<double>("xy_snap_radius", 1.5);
     declare_parameter<double>("goal_z_tolerance", 0.6);
     declare_parameter<double>("edge_cost_weight", 0.4);
+    declare_parameter<double>("stair_rise", 0.15);
+    declare_parameter<double>("stair_margin", 0.30);
     declare_parameter<double>("path_min_distance", 0.5);
     declare_parameter<bool>("use_odom_as_start", true);
     declare_parameter<bool>("plan_on_startup", false);
@@ -58,6 +60,8 @@ public:
     mp.xy_snap_radius = get_parameter("xy_snap_radius").as_double();
     mp.goal_z_tolerance = get_parameter("goal_z_tolerance").as_double();
     mp.edge_cost_weight = get_parameter("edge_cost_weight").as_double();
+    mp.stair_rise = get_parameter("stair_rise").as_double();
+    mp.stair_margin = get_parameter("stair_margin").as_double();
 
     const std::string pcd_file = get_parameter("pcd_file").as_string();
     std::string err;
@@ -69,6 +73,25 @@ public:
     RCLCPP_INFO(
       get_logger(), "Support map ready: %dx%dx%d @ %.2fm from %s", map_.size().x(),
       map_.size().y(), map_.size().z(), map_.resolution(), pcd_file.c_str());
+    const auto &stair = map_.stairMarginStats();
+    RCLCPP_INFO(
+      get_logger(),
+      "Stair avoidance: rise>%.2fm is a step, margin=%.2fm, edge_cost_weight=%.2f, "
+      "extra cost = weight * resolution * proximity (1 on the edge, 0 outside the margin)",
+      mp.stair_rise, mp.stair_margin, mp.edge_cost_weight);
+    if (stair.step_edge_cells + stair.cliff_edge_cells == 0) {
+      RCLCPP_INFO(
+        get_logger(),
+        "Stair map: support_layers=%d, no step or cliff edges (flat floor or rise too high)",
+        stair.support_layers);
+    } else {
+      RCLCPP_INFO(
+        get_logger(),
+        "Stair map: support_layers=%d step_edge_cells=%d cliff_edge_cells=%d "
+        "cells_inside_margin=%d edge_z=[%.2f, %.2f]",
+        stair.support_layers, stair.step_edge_cells, stair.cliff_edge_cells, stair.margin_cells,
+        stair.edge_z_min, stair.edge_z_max);
+    }
 
     auto path_qos = rclcpp::QoS(1).reliable().transient_local();
     path_pub_ = create_publisher<nav_msgs::msg::Path>("initial_path", path_qos);
@@ -158,10 +181,48 @@ private:
 
   void runPlan(const Eigen::Vector3d &start, const Eigen::Vector3d &goal)
   {
+    RCLCPP_INFO(
+      get_logger(),
+      "Plan request start=(%.2f, %.2f, %.2f) goal=(%.2f, %.2f, %.2f)", start.x(), start.y(),
+      start.z(), goal.x(), goal.y(), goal.z());
     const PlanResult result = planner_.plan(start, goal);
+    if (result.have_start_snap) {
+      RCLCPP_INFO(
+        get_logger(),
+        "Start snap (%.2f, %.2f, %.2f) stair_proximity=%.2f", result.snapped_start.x(),
+        result.snapped_start.y(), result.snapped_start.z(), result.start_stair_proximity);
+    } else {
+      RCLCPP_WARN(get_logger(), "Start snap failed: %s", result.message.c_str());
+    }
+    if (result.have_preferred_goal) {
+      RCLCPP_INFO(
+        get_logger(),
+        "Goal candidates=%d z_ref=%.2f preferred=(%.2f, %.2f, %.2f) stair_proximity=%.2f",
+        result.goal_candidate_count, result.goal_z_reference, result.preferred_goal.x(),
+        result.preferred_goal.y(), result.preferred_goal.z(),
+        result.preferred_goal_stair_proximity);
+    } else if (result.have_start_snap) {
+      RCLCPP_WARN(
+        get_logger(), "Goal snap failed near (%.2f, %.2f, %.2f), z_ref=%.2f: %s", goal.x(),
+        goal.y(), goal.z(), result.goal_z_reference, result.message.c_str());
+    }
     RCLCPP_INFO(
       get_logger(), "Plan %s: %s", planStatusToString(result.status), result.message.c_str());
     if (result.status != PlanStatus::Success) return;
+    RCLCPP_INFO(
+      get_logger(),
+      "Path stair check: length=%.2fm max_stair_proximity=%.2f cells_inside_margin=%d "
+      "waypoints_after_0.5m_downsample=%zu (proximity 1 = on a step edge, 0 = outside %.2fm)",
+      result.path_length, result.path_max_stair_proximity, result.path_points_inside_margin,
+      result.path.size(), map_.params().stair_margin);
+    if (result.stair_contact.empty()) {
+      RCLCPP_INFO(
+        get_logger(), "Path does not enter the inner half of the stair margin (proximity < 0.5)");
+    } else {
+      RCLCPP_INFO(
+        get_logger(), "Path cells with stair proximity >= 0.5 (first 6): %s",
+        result.stair_contact.c_str());
+    }
 
     auto path_pts = SupportAstar::downsample(result.path, path_min_distance_);
     if (path_pts.size() < 2) {

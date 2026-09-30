@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
 #include <limits>
 #include <queue>
+#include <sstream>
 #include <unordered_map>
 #include <utility>
 
@@ -76,6 +78,10 @@ PlanResult SupportAstar::plan(const Eigen::Vector3d &start, const Eigen::Vector3
     result.message = "start: " + err;
     return result;
   }
+  result.have_start_snap = true;
+  result.snapped_start = start_pt;
+  result.start_stair_proximity = static_cast<double>(
+    map_->stairProximity(start_cell.x(), start_cell.y(), start_cell.z()));
 
   // Collect candidates near goal XY whose support z is close to the requested
   // height (Publish Point z, or start height for flat 2D Goal Pose z≈0).
@@ -88,6 +94,7 @@ PlanResult SupportAstar::plan(const Eigen::Vector3d &start, const Eigen::Vector3
   const bool flat_goal = std::fabs(goal.z()) < 0.05;
   const double z_ref = flat_goal ? start_pt.z() : goal.z();
   const double z_tol = std::max(0.05, map_->params().goal_z_tolerance);
+  result.goal_z_reference = z_ref;
 
   struct GoalCand
   {
@@ -123,6 +130,11 @@ PlanResult SupportAstar::plan(const Eigen::Vector3d &start, const Eigen::Vector3
   std::sort(goals.begin(), goals.end(), [](const GoalCand &a, const GoalCand &b) {
     return a.pref < b.pref;
   });
+  result.goal_candidate_count = static_cast<int>(goals.size());
+  result.have_preferred_goal = true;
+  result.preferred_goal = goals.front().pt;
+  result.preferred_goal_stair_proximity = static_cast<double>(
+    map_->stairProximity(goals.front().key.x, goals.front().key.y, goals.front().key.layer));
 
   std::unordered_map<NodeKey, bool, NodeKeyHash> is_goal;
   for (const auto &g : goals) is_goal[g.key] = true;
@@ -139,6 +151,8 @@ PlanResult SupportAstar::plan(const Eigen::Vector3d &start, const Eigen::Vector3
         break;
       }
     }
+    result.path_max_stair_proximity = result.start_stair_proximity;
+    result.path_points_inside_margin = result.start_stair_proximity > 1e-3 ? 1 : 0;
     return result;
   }
 
@@ -194,8 +208,12 @@ PlanResult SupportAstar::plan(const Eigen::Vector3d &start, const Eigen::Vector3
         const double edge_pen =
           map_->params().edge_cost_weight * res *
           static_cast<double>(map_->incompatibleNeighborCount(nx, ny, k));
+        // proximity is 1 on a step/cliff edge and 0 outside stair_margin.
+        const double stair_pen =
+          map_->params().edge_cost_weight * res *
+          static_cast<double>(map_->stairProximity(nx, ny, k));
         const double tentative =
-          cur.g + cost8[n] * res + 0.1 * std::fabs(z_next - z_cur) + edge_pen;
+          cur.g + cost8[n] * res + 0.1 * std::fabs(z_next - z_cur) + edge_pen + stair_pen;
         auto it = g_score.find(next);
         if (it != g_score.end() && tentative >= it->second) continue;
         g_score[next] = tentative;
@@ -242,6 +260,25 @@ PlanResult SupportAstar::plan(const Eigen::Vector3d &start, const Eigen::Vector3
     result.path.front() = start_pt;
     result.path.back() = goal_pt;
   }
+  result.path_length = 0.0;
+  result.path_max_stair_proximity = 0.0;
+  result.path_points_inside_margin = 0;
+  std::ostringstream contact;
+  contact << std::fixed << std::setprecision(2);
+  int contact_shown = 0;
+  for (size_t i = 0; i < result.path.size(); ++i) {
+    if (i > 0) result.path_length += (result.path[i] - result.path[i - 1]).norm();
+    const double prox = static_cast<double>(map_->stairProximityAt(result.path[i]));
+    result.path_max_stair_proximity = std::max(result.path_max_stair_proximity, prox);
+    if (prox > 1e-3) ++result.path_points_inside_margin;
+    if (prox >= 0.5 && contact_shown < 6) {
+      if (contact_shown > 0) contact << "; ";
+      contact << "(" << result.path[i].x() << ", " << result.path[i].y() << ", "
+              << result.path[i].z() << " prox=" << prox << ")";
+      ++contact_shown;
+    }
+  }
+  result.stair_contact = contact.str();
   result.path = downsample(result.path, 0.5);
   result.status = PlanStatus::Success;
   result.message = "ok, points=" + std::to_string(result.path.size());

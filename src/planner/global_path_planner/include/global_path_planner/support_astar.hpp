@@ -23,6 +23,19 @@ struct PlanResult
   PlanStatus status{PlanStatus::SearchFailed};
   std::string message;
   std::vector<Eigen::Vector3d> path;  // ground / support z
+  bool have_start_snap{false};
+  Eigen::Vector3d snapped_start{Eigen::Vector3d::Zero()};
+  double start_stair_proximity{0.0};
+  int goal_candidate_count{0};
+  bool have_preferred_goal{false};
+  Eigen::Vector3d preferred_goal{Eigen::Vector3d::Zero()};
+  double preferred_goal_stair_proximity{0.0};
+  double goal_z_reference{0.0};
+  double path_max_stair_proximity{0.0};
+  int path_points_inside_margin{0};
+  double path_length{0.0};
+  /** Up to a few A* cells with stair proximity >= 0.5, for the terminal log. */
+  std::string stair_contact;
 };
 
 class SupportAstar

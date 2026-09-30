@@ -76,6 +76,7 @@ bool SupportMap::buildFromOccupied(
   occupied_ = occupied;
   supports_.assign(static_cast<size_t>(size_.x()) * size_.y(), {});
   extractSupports();
+  buildStairMargin();
   return true;
 }
 // 提取支撑面
@@ -193,6 +194,125 @@ bool SupportMap::isBodyCollisionFree(int ix, int iy, int layer) const
     }
   }
   return true;
+}
+
+void SupportMap::buildStairMargin()
+{
+  // 初始化
+  stair_proximity_.assign(supports_.size(), {});
+  stair_stats_ = StairMarginStats{};
+  bool have_edge_z = false;
+  // 高度差超过 rise 的台阶边缘
+  const double rise = params_.stair_rise;
+  const double margin = params_.stair_margin;
+  // 最大高度差
+  const double max_step = params_.max_step_height;
+  // margin对应的栅格数
+  const int rad =
+    margin > 1e-6 ? std::max(0, static_cast<int>(std::ceil(margin / resolution_))) : 0;
+  // 台阶边缘点
+  struct Source
+  {
+    int ix{0};
+    int iy{0};
+    float z{0.f};
+  };
+  std::vector<Source> sources;
+  sources.reserve(1024);
+  static const int dx8[8] = {1, 1, 0, -1, -1, -1, 0, 1};
+  static const int dy8[8] = {0, 1, 1, 1, 0, -1, -1, -1};
+
+  for (int iy = 0; iy < size_.y(); ++iy) {
+    for (int ix = 0; ix < size_.x(); ++ix) {
+      const int nlayer = supportCount(ix, iy);
+      stair_proximity_[static_cast<size_t>(flatXY(ix, iy))].assign(
+        static_cast<size_t>(nlayer), 0.f);
+      stair_stats_.support_layers += nlayer;
+      for (int k = 0; k < nlayer; ++k) {
+        const float z = supportZ(ix, iy, k);
+        bool step_edge = false;
+        bool cliff_edge = false;
+        for (int n = 0; n < 8; ++n) {
+          const int jx = ix + dx8[n];
+          const int jy = iy + dy8[n];
+          if (!hasSupport(jx, jy)) continue;
+          float closest = std::numeric_limits<float>::infinity();
+          for (int kk = 0; kk < supportCount(jx, jy); ++kk) {
+            closest = std::min(closest, std::fabs(supportZ(jx, jy, kk) - z));
+          }
+          if (closest > static_cast<float>(max_step)) {
+            cliff_edge = true;
+          } else if (closest > static_cast<float>(rise)) {
+            step_edge = true;
+          }
+        }
+        if (!step_edge && !cliff_edge) continue;
+        if (step_edge) ++stair_stats_.step_edge_cells;
+        if (cliff_edge) ++stair_stats_.cliff_edge_cells;
+        if (!have_edge_z) {
+          stair_stats_.edge_z_min = stair_stats_.edge_z_max = z;
+          have_edge_z = true;
+        } else {
+          stair_stats_.edge_z_min = std::min(stair_stats_.edge_z_min, z);
+          stair_stats_.edge_z_max = std::max(stair_stats_.edge_z_max, z);
+        }
+        sources.push_back(Source{ix, iy, z});
+      }
+    }
+  }
+
+  if (rad == 0 || sources.empty()) return;
+
+  for (const auto &src : sources) {
+    for (int dy = -rad; dy <= rad; ++dy) {
+      for (int dx = -rad; dx <= rad; ++dx) {
+        const double dist = std::hypot(static_cast<double>(dx), static_cast<double>(dy)) * resolution_;
+        if (dist > margin) continue;
+        const int jx = src.ix + dx;
+        const int jy = src.iy + dy;
+        if (!hasSupport(jx, jy)) continue;
+        const float prox = static_cast<float>(std::max(0.0, 1.0 - dist / margin));
+        auto &layers = stair_proximity_[static_cast<size_t>(flatXY(jx, jy))];
+        for (int k = 0; k < supportCount(jx, jy); ++k) {
+          if (std::fabs(supportZ(jx, jy, k) - src.z) > max_step) continue;
+          layers[static_cast<size_t>(k)] = std::max(layers[static_cast<size_t>(k)], prox);
+        }
+      }
+    }
+  }
+
+  for (const auto &col : stair_proximity_) {
+    for (const float prox : col) {
+      if (prox > 1e-4f) ++stair_stats_.margin_cells;
+    }
+  }
+}
+
+float SupportMap::stairProximity(int ix, int iy, int layer) const
+{
+  if (!hasSupport(ix, iy) || layer < 0 || layer >= supportCount(ix, iy)) return 0.f;
+  const auto &col = stair_proximity_[static_cast<size_t>(flatXY(ix, iy))];
+  if (layer >= static_cast<int>(col.size())) return 0.f;
+  return col[static_cast<size_t>(layer)];
+}
+
+float SupportMap::stairProximityAt(const Eigen::Vector3d &pt) const
+{
+  if (!(resolution_ > 1e-6)) return 0.f;
+  const int ix = static_cast<int>(std::floor((pt.x() - origin_.x()) / resolution_));
+  const int iy = static_cast<int>(std::floor((pt.y() - origin_.y()) / resolution_));
+  if (!hasSupport(ix, iy)) return 0.f;
+  int best_k = -1;
+  float best_dz = std::numeric_limits<float>::infinity();
+  for (int k = 0; k < supportCount(ix, iy); ++k) {
+    const float dz = std::fabs(supportZ(ix, iy, k) - static_cast<float>(pt.z()));
+    if (dz < best_dz) {
+      best_dz = dz;
+      best_k = k;
+    }
+  }
+  if (best_k < 0 || best_dz > static_cast<float>(params_.max_step_height)) return 0.f;
+  return stairProximity(ix, iy, best_k);
 }
 
 int SupportMap::incompatibleNeighborCount(int ix, int iy, int layer) const
