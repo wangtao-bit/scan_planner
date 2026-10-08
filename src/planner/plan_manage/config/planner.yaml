@@ -2,66 +2,78 @@ scan_planner_node:
   ros__parameters:
     use_sim_time: false
 
-    fsm.navi_mode: 1
-    fsm.thresh_replan: 1.0
-    fsm.thresh_no_replan: 0.1
-    fsm.planning_horizon: 3.5
-    fsm.emergency_time: 1.0
-    fsm.fail_safe: true
-    fsm.max_replan_fail_count: 1000
+    # ============ FSM 状态机参数 ============
+    fsm.navi_mode: 1                      # 导航模式: 1=RViz目标点 2=预设路径点 3=参考路径
+    fsm.thresh_replan: 1.0                # 触发重规划的距离阈值(m) - 减小此值可更频繁重规划，适合动态环境
+    fsm.thresh_no_replan: 0.1             # 不需要重规划的距离阈值(m)
+    fsm.planning_horizon: 3.5             # 规划时间范围(s) - 增大可看得更远，但计算量增加
+    fsm.emergency_time: 1.0               # 紧急停止时间(s)
+    fsm.fail_safe: true                   # 启用失效安全模式
+    fsm.max_replan_fail_count: 1000       # 最大重规划失败次数
 
-    grid_map.resolution: 0.05
-    grid_map.sliding_map_size_x: 10.0
-    grid_map.sliding_map_size_y: 10.0
-    grid_map.sliding_map_size_z: 5.0
-    grid_map.local_update_range_x: 5.0
-    grid_map.local_update_range_y: 5.0
-    grid_map.local_update_range_z: 2.5
-    grid_map.map_sliding_en: true
-    grid_map.map_sliding_thresh: 0.2
-    grid_map.double_cylinder_radius: 0.25
-    grid_map.double_cylinder_offset: 0.18
-    grid_map.body_height: 0.4
-    grid_map.obstacles_inflation_z_up: 0.1
-    grid_map.obstacles_inflation_z_down: 0.1
-    grid_map.frame_id: world
-    grid_map.sliding_map_frame_id: sliding_map
-    grid_map.ground_height: 0.0
-    grid_map.sensor_type: lidar
-    grid_map.cloud_is_world: true
-    grid_map.need_extrinsic: false
+    # ============ 栅格地图参数 ============
+    grid_map.resolution: 0.05             # 栅格分辨率(m) - 越小越精细但计算量大，典型值0.05-0.1
+    grid_map.sliding_map_size_x: 10.0     # 滑动地图X方向尺寸(m)
+    grid_map.sliding_map_size_y: 10.0     # 滑动地图Y方向尺寸(m)
+    grid_map.sliding_map_size_z: 5.0      # 滑动地图Z方向尺寸(m)
+    grid_map.local_update_range_x: 5.0    # 局部更新范围X(m)
+    grid_map.local_update_range_y: 5.0    # 局部更新范围Y(m)
+    grid_map.local_update_range_z: 2.5    # 局部更新范围Z(m)
+    grid_map.map_sliding_en: true         # 启用地图滑动
+    grid_map.map_sliding_thresh: 0.2      # 地图滑动阈值(m)
 
-    grid_map.cx: 321.04638671875
-    grid_map.cy: 243.44969177246094
-    grid_map.fx: 387.229248046875
-    grid_map.fy: 387.229248046875
-    grid_map.depth_filter_maxdist: 3.0
-    grid_map.depth_filter_mindist: 0.3
-    grid_map.depth_filter_margin: 1
-    grid_map.k_depth_scaling_factor: 1000.0
-    grid_map.skip_pixel: 2
+    # ============ 机器人形状参数（碰撞检测模型）============
+    # 使用前后两个竖直圆柱模拟四足机器人的碰撞体积
+    grid_map.double_cylinder_radius: 0.25 # 双圆柱半径(m) - Go2机器人约0.25m，增大可提高安全裕度但降低通过性
+    grid_map.double_cylinder_offset: 0.18 # 前后圆柱偏移(m) - 沿机器人朝向的前后距离，前圆柱在center+offset*heading，后圆柱在center-offset*heading
+    grid_map.body_height: 0.4             # 机身高度(m) - 影响多层导航时的目标高度
 
-    grid_map.p_hit: 0.85
-    grid_map.p_miss: 0.30
-    grid_map.p_min: 0.12
-    grid_map.p_max: 0.98
-    grid_map.p_occ: 0.80
-    grid_map.max_ray_length: 5.0
-    grid_map.vis_height: 0.3
-    grid_map.show_occ_time: false
+    # ============ 障碍物膨胀参数（关键避障参数）============
+    grid_map.obstacles_inflation_z_up: 0.1    # 障碍物向上膨胀距离(m) - 增大可提高安全性，但可能过于保守
+    grid_map.obstacles_inflation_z_down: 0.1  # 障碍物向下膨胀距离(m) - 防止与地面障碍碰撞
 
-    manager.max_vel: 0.75
-    manager.max_acc: 0.5
-    manager.max_jerk: 4.0
-    manager.control_points_distance: 0.2
-    manager.feasibility_tolerance: 0.5
-    manager.planning_horizon: 3.5
+    grid_map.frame_id: world              # 世界坐标系ID
+    grid_map.sliding_map_frame_id: sliding_map  # 滑动地图坐标系ID
+    grid_map.ground_height: 0.0           # 地面高度(m)
+    grid_map.sensor_type: lidar           # 传感器类型: lidar 或 depth
+    grid_map.cloud_is_world: true         # 点云是否为世界坐标系
+    grid_map.need_extrinsic: false        # 是否需要外参标定 - 真机模式设为true
 
-    optimization.lambda_smooth: 1.0
-    optimization.lambda_collision: 1.0
-    optimization.lambda_feasibility: 0.1
-    optimization.lambda_fitness: 1.0
-    optimization.dist0: 0.2
-    optimization.max_vel: 0.75
-    optimization.max_acc: 0.5
-    optimization.order: 3
+    # ============ 深度相机内参（仅sensor_type=depth时使用）============
+    grid_map.cx: 321.04638671875          # 相机光心X坐标(像素) - RealSense默认值，真机需标定
+    grid_map.cy: 243.44969177246094       # 相机光心Y坐标(像素)
+    grid_map.fx: 387.229248046875         # 焦距X(像素)
+    grid_map.fy: 387.229248046875         # 焦距Y(像素)
+    grid_map.depth_filter_maxdist: 3.0    # 深度图最大有效距离(m)
+    grid_map.depth_filter_mindist: 0.3    # 深度图最小有效距离(m)
+    grid_map.depth_filter_margin: 1       # 深度图边缘裁剪(像素)
+    grid_map.k_depth_scaling_factor: 1000.0  # 深度值缩放因子
+    grid_map.skip_pixel: 2                # 深度图采样间隔(像素) - 增大可减少计算量
+
+    # ============ 占据概率更新参数（动态地图）============
+    grid_map.p_hit: 0.85                  # 雷达击中障碍时的占据概率增量 - 增大可更快确认障碍
+    grid_map.p_miss: 0.30                 # 射线穿过时的占据概率减量 - 增大可更快清除障碍
+    grid_map.p_min: 0.12                  # 最小占据概率
+    grid_map.p_max: 0.98                  # 最大占据概率
+    grid_map.p_occ: 0.80                  # 判定为占据的阈值 - 降低(如0.70)可对动态障碍反应更快
+    grid_map.max_ray_length: 5.0          # 最大射线长度(m) - 超出此距离的点不用于地图更新
+    grid_map.vis_height: 0.3              # 可视化高度(m)
+    grid_map.show_occ_time: false         # 是否显示占据时间
+
+    # ============ 路径管理器参数（动力学约束）============
+    manager.max_vel: 0.75                 # 最大速度(m/s) - 建议从0.5开始测试，逐步提高
+    manager.max_acc: 0.5                  # 最大加速度(m/s²) - 太大可能导致机器人打滑
+    manager.max_jerk: 4.0                 # 最大加加速度(m/s³)
+    manager.control_points_distance: 0.2  # B样条控制点间距(m)
+    manager.feasibility_tolerance: 0.5    # 可行性容忍度
+    manager.planning_horizon: 3.5         # 规划时间范围(s)
+
+    # ============ 优化器参数（关键避障权重）============
+    optimization.lambda_smooth: 1.0       # 平滑性权重 - 增大可使轨迹更平滑
+    optimization.lambda_collision: 1.0    # 碰撞代价权重 - 增大(1.0-5.0)可更激进避障，减小则路径更贴近障碍
+    optimization.lambda_feasibility: 0.1  # 可行性权重
+    optimization.lambda_fitness: 1.0      # 路径拟合权重 - 增大可更好跟踪参考路径
+    optimization.dist0: 0.2               # 安全距离阈值(m) - 增大(0.2-0.5)可保持与障碍更远距离
+    optimization.max_vel: 0.75            # 优化器最大速度(m/s) - 应与manager.max_vel一致
+    optimization.max_acc: 0.5             # 优化器最大加速度(m/s²) - 应与manager.max_acc一致
+    optimization.order: 3                 # B样条阶数

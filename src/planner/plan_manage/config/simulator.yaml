@@ -1,74 +1,91 @@
+# ============ Mockamap 程序生成地图参数 ============
 mockamap_node:
   ros__parameters:
     use_sim_time: false
-    seed: 127
-    update_freq: 0.5
-    resolution: 0.1
-    x_length: 40
-    y_length: 40
-    z_length: 5
-    type: 2
-    complexity: 0.05
-    fill: 0.12
-    fractal: 1
-    attenuation: 0.1
-    width_min: 0.2
-    width_max: 0.8
-    height_min: 2.0
-    height_max: 2.0
-    obstacle_number: 500
-    surface_resolution: 0.05
+    seed: 127                             # 随机种子 - 改变此值可生成不同的地图
+    update_freq: 0.5                      # 地图更新频率(Hz)
+    resolution: 0.1                       # 地图分辨率(m)
+    x_length: 40                          # 地图X方向长度(m)
+    y_length: 40                          # 地图Y方向长度(m)
+    z_length: 5                           # 地图Z方向高度(m)
+    type: 2                               # 地图类型: 1=柱状障碍 2=分形地形
+    complexity: 0.05                      # 地图复杂度 - 增大可生成更复杂的地形
+    fill: 0.12                            # 填充率 - 控制障碍物密度
+    fractal: 1                            # 分形层数
+    attenuation: 0.1                      # 衰减系数
+    width_min: 0.2                        # 障碍物最小宽度(m)
+    width_max: 0.8                        # 障碍物最大宽度(m)
+    height_min: 2.0                       # 障碍物最小高度(m)
+    height_max: 2.0                       # 障碍物最大高度(m)
+    obstacle_number: 500                  # 障碍物数量 - 仅type=1时使用
+    surface_resolution: 0.05              # 表面分辨率(m)
 
+# ============ 局部感知渲染参数 ============
 pcl_render_node:
   ros__parameters:
     use_sim_time: false
-    quadrotor_name: quad_0
-    sensor_type: lidar
-    body_pose_topic: body_pose
-    map.resolution: 0.1
-    map.x_size: 40.0
-    map.y_size: 40.0
-    map.z_size: 5.0
-    sensing_horizon: 40.0
-    sensing_rate: 10.0
-    estimation_rate: 10.0
-    polar_resolution: 0.2
-    yaw_fov: 360.0
-    vertical_fov: 90.0
-    min_raylength: 1.0
-    downsample_res: 0.1
-    lidar_pitch: 45.0
-    is_360lidar: 1
-    use_minicf_pattern: 1
-    use_avia_pattern: 0
-    use_vlp32_pattern: 0
-    use_os64_pattern: 0
-    use_os128_pattern: 0
-    cam_width: 640
-    cam_height: 480
-    cam_fx: 387.229248046875
-    cam_fy: 387.229248046875
-    cam_cx: 321.04638671875
-    cam_cy: 243.44969177246094
-    dynamic.enable: 0
-    dynamic.object_size: 0.0
-    dynamic.object_count: 0
-    dynamic.mode: 0
-    dynamic.velocity: 0.0
-    dynamic.manual_size: 0.6
-    collision_check.enable: 0
-    collision_check.range: 0.3
-    use_global_map_topic: true
-    pcd_map_file: ''
+    quadrotor_name: quad_0                # 机器人名称前缀
+    sensor_type: lidar                    # 传感器类型: lidar 或 depth
+    body_pose_topic: body_pose            # 机身位姿话题名
 
+    # 地图参数
+    map.resolution: 0.1                   # 地图分辨率(m)
+    map.x_size: 40.0                      # 地图X方向尺寸(m)
+    map.y_size: 40.0                      # 地图Y方向尺寸(m)
+    map.z_size: 5.0                       # 地图Z方向尺寸(m)
+
+    # 传感器参数
+    sensing_horizon: 40.0                 # 感知距离(m) - 传感器最大探测范围
+    sensing_rate: 10.0                    # 感知频率(Hz) - 提高可更快更新点云，但增加计算量
+    estimation_rate: 10.0                 # 估计频率(Hz)
+    polar_resolution: 0.2                 # 极坐标分辨率(度)
+    yaw_fov: 360.0                        # 水平视场角(度)
+    vertical_fov: 90.0                    # 垂直视场角(度)
+    min_raylength: 1.0                    # 最小射线长度(m) - 小于此距离的点被忽略
+    downsample_res: 0.1                   # 降采样分辨率(m)
+
+    # 雷达型号选择（仅sensor_type=lidar时使用）
+    lidar_pitch: 45.0                     # 雷达俯仰角(度)
+    is_360lidar: 1                        # 是否为360度雷达
+    use_minicf_pattern: 1                 # 使用MiniCF雷达模式
+    use_avia_pattern: 0                   # 使用Avia雷达模式
+    use_vlp32_pattern: 0                  # 使用VLP-32雷达模式
+    use_os64_pattern: 0                   # 使用Ouster-64雷达模式
+    use_os128_pattern: 0                  # 使用Ouster-128雷达模式
+
+    # 相机内参（仅sensor_type=depth时使用）
+    cam_width: 640                        # 相机宽度(像素)
+    cam_height: 480                       # 相机高度(像素)
+    cam_fx: 387.229248046875              # 焦距X
+    cam_fy: 387.229248046875              # 焦距Y
+    cam_cx: 321.04638671875               # 光心X
+    cam_cy: 243.44969177246094            # 光心Y
+
+    # ============ 动态障碍物参数 ============
+    dynamic.enable: 0                     # 启用随机动态障碍 - 设为1可测试动态避障
+    dynamic.object_size: 0.0              # 动态障碍物尺寸(m)
+    dynamic.object_count: 0               # 动态障碍物数量
+    dynamic.mode: 0                       # 动态障碍物运动模式: 0=静止 1=匀速 2=随机
+    dynamic.velocity: 0.0                 # 动态障碍物速度(m/s)
+    dynamic.manual_size: 0.6              # 手动添加障碍的尺寸(m) - RViz点击或/add_obstacle话题添加的盒子边长
+
+    # 碰撞检测
+    collision_check.enable: 0             # 启用碰撞检测
+    collision_check.range: 0.3            # 碰撞检测范围(m)
+
+    # 地图加载
+    use_global_map_topic: true            # 使用全局地图话题
+    pcd_map_file: ''                      # PCD地图文件路径 - 由launch文件参数覆盖
+
+# ============ 里程计可视化参数 ============
 odom_visualization:
   ros__parameters:
     use_sim_time: false
-    frame_id: world
-    child_frame_id: base
-    publish_tf: true
-    robot_scale: 1.0
-    color.r: 0.0
-    color.g: 0.0
-    color.b: 0.0
-    color.a: 1.0
+    frame_id: world                       # 父坐标系
+    child_frame_id: base                  # 子坐标系
+    publish_tf: true                      # 发布TF变换
+    robot_scale: 1.0                      # 机器人可视化缩放
+    color.r: 0.0                          # 红色通道(0-1)
+    color.g: 0.0                          # 绿色通道(0-1)
+    color.b: 0.0                          # 蓝色通道(0-1)
+    color.a: 1.0                          # 透明度(0-1)
