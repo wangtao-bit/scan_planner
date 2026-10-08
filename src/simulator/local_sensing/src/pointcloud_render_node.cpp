@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <tf2_ros/transform_broadcaster.h>
+#include <geometry_msgs/msg/point_stamped.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <sensor_msgs/msg/image.hpp>
@@ -82,6 +83,8 @@ sensor_msgs::msg::PointCloud2 local_map_pcl;
 sensor_msgs::msg::PointCloud2 local_depth_pcl;
 
 rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub;
+rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr clicked_point_sub;
+rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr add_obstacle_sub;
 rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr global_map_sub;
 std::vector<rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr> other_odom_subs;
 
@@ -146,6 +149,12 @@ vector<int> dynobj_pointsindex;
 double dyn_velocity;
 int dynobject_num;
 int dyn_mode;
+double manual_obstacle_size = 0.6;
+vector<Eigen::Vector3d> manual_obstacle_centers;
+vector<PointType> manual_points;
+pcl::PointCloud<PointType> manual_points_vis;
+vector<int> manual_pointsindex;
+constexpr int kManualIndexOffset = 50000;
 Eigen::Vector3d map_min, map_max;
 int dyn_obs_diff_size_on = 1;
 vector<double> dyn_obs_size_vec;
@@ -473,6 +482,58 @@ void generate_ptclouds_by_pos(Eigen::Vector3d obs_pos, int obs_type, pcl::PointC
   }
 }
 
+void rebuildManualObstacles()
+{
+  manual_points.clear();
+  manual_pointsindex.clear();
+  manual_points_vis.clear();
+  int count = 0;
+  for (const auto &center : manual_obstacle_centers)
+  {
+    pcl::PointCloud<PointType> box = generate_box_cloud(manual_obstacle_size);
+    for (auto &point : box.points)
+    {
+      point.x += center.x();
+      point.y += center.y();
+      point.z += center.z();
+      manual_points.push_back(point);
+      manual_points_vis.push_back(point);
+      manual_pointsindex.push_back(origin_mapptcount + kManualIndexOffset + count);
+      count++;
+    }
+  }
+  manual_points_vis.width = manual_points_vis.points.size();
+  manual_points_vis.height = 1;
+  manual_points_vis.is_dense = true;
+}
+
+void addManualObstacle(double x, double y, double z)
+{
+  if (manual_obstacle_size <= 0.0)
+  {
+    return;
+  }
+  if (z < manual_obstacle_size * 0.5)
+  {
+    z += manual_obstacle_size * 0.5;
+  }
+  manual_obstacle_centers.emplace_back(x, y, z);
+  rebuildManualObstacles();
+  RCLCPP_INFO(ros_node->get_logger(),
+              "Added static box %.2f m at (%.2f, %.2f, %.2f); total %zu",
+              manual_obstacle_size, x, y, z, manual_obstacle_centers.size());
+}
+
+void clickedPointCallback(const geometry_msgs::msg::PointStamped::ConstSharedPtr message)
+{
+  addManualObstacle(message->point.x, message->point.y, message->point.z);
+}
+
+void addObstaclePoseCallback(const geometry_msgs::msg::PoseStamped::ConstSharedPtr message)
+{
+  addManualObstacle(message->pose.position.x, message->pose.position.y, message->pose.position.z);
+}
+
 void dynobjGenerate()
 {
   if (has_global_map == true && dynobj_enable == 1)
@@ -693,6 +754,7 @@ void dynobjGenerate()
     //   }
     // }
 
+    dynobj_points_vis += manual_points_vis;
     dynobj_points_vis.width = dynobj_points_vis.points.size();
     dynobj_points_vis.height = 1;
     dynobj_points_vis.is_dense = true;
@@ -706,6 +768,13 @@ void dynobjGenerate()
     has_dyn_map = true;
 
     dyn_start_time = ros_node->now();
+  }
+  else if (!manual_points_vis.points.empty())
+  {
+    pcl::toROSMsg(manual_points_vis, dynobj_points_pcd);
+    dynobj_points_pcd.header.frame_id = "world";
+    dynobj_points_pcd.header.stamp = ros_node->now();
+    pub_dyncloud->publish(dynobj_points_pcd);
   }
 }
 
@@ -979,6 +1048,7 @@ void rcvGlobalPointCloudCallBack(const sensor_msgs::msg::PointCloud2::ConstShare
     }
   }
 
+  rebuildManualObstacles();
   has_global_map = true;
 }
 
@@ -1375,6 +1445,11 @@ void renderSensedPoints()
     fov_points.insert(fov_points.end(), dynobj_points.begin(), dynobj_points.end());
     fov_pointsindex.insert(fov_pointsindex.end(), dynobj_pointsindex.begin(), dynobj_pointsindex.end());
   }
+  if (!manual_points.empty())
+  {
+    fov_points.insert(fov_points.end(), manual_points.begin(), manual_points.end());
+    fov_pointsindex.insert(fov_pointsindex.end(), manual_pointsindex.begin(), manual_pointsindex.end());
+  }
 
   if (drone_num > 1)
   {
@@ -1586,6 +1661,16 @@ shared(culling_kdindex,                                                         
         if (likely(point_index < origin_mapptcount))
         {
           pt = cloud_all_map.points[point_index];
+        }
+        else if (point_index >= origin_mapptcount + kManualIndexOffset &&
+                 point_index < origin_mapptcount + 100000)
+        {
+          const int manual_index = point_index - origin_mapptcount - kManualIndexOffset;
+          if (manual_index < 0 || manual_index >= static_cast<int>(manual_points.size()))
+          {
+            continue;
+          }
+          pt = manual_points[manual_index];
         }
         else
         {
@@ -2061,6 +2146,7 @@ int main(int argc, char **argv)
   dynobject_num = ros_node->declare_parameter<int>("dynamic.object_count", 0);
   dyn_mode = ros_node->declare_parameter<int>("dynamic.mode", 0);
   dyn_velocity = ros_node->declare_parameter<double>("dynamic.velocity", 0.0);
+  manual_obstacle_size = ros_node->declare_parameter<double>("dynamic.manual_size", 0.6);
   use_uav_extra_model = ros_node->declare_parameter<int>("use_uav_extra_model", 0);
   collisioncheck_enable = ros_node->declare_parameter<int>("collision_check.enable", 0);
   collision_range = ros_node->declare_parameter<double>("collision_check.range", 0.3);
@@ -2132,6 +2218,10 @@ int main(int argc, char **argv)
   const auto body_pose_topic = ros_node->declare_parameter<std::string>("body_pose_topic", "body_pose");
   odom_sub = ros_node->create_subscription<nav_msgs::msg::Odometry>(
       body_pose_topic, rclcpp::SensorDataQoS(), rcvOdometryCallback);
+  clicked_point_sub = ros_node->create_subscription<geometry_msgs::msg::PointStamped>(
+      "/clicked_point", 10, clickedPointCallback);
+  add_obstacle_sub = ros_node->create_subscription<geometry_msgs::msg::PoseStamped>(
+      "/add_obstacle", 10, addObstaclePoseCallback);
 
   // publishers
   pub_dyncloud = ros_node->create_publisher<sensor_msgs::msg::PointCloud2>("dyn_cloud", rclcpp::SensorDataQoS());

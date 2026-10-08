@@ -55,6 +55,7 @@ pcl_render_node:
     dynamic.object_count: 0
     dynamic.mode: 0
     dynamic.velocity: 0.0
+    dynamic.manual_size: 0.6
     collision_check.enable: 0
     collision_check.range: 0.3
     use_global_map_topic: true
