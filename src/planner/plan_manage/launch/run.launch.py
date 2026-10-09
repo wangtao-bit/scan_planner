@@ -187,6 +187,30 @@ def _setup(context):
             )
         )
 
+    # 实机模式：以坐标轴 Marker 显示机器人位姿（100Hz 里程计降频到 10Hz 发布）
+    if is_real:
+        actions.append(
+            Node(
+                package="scan_planner",
+                executable="robot_pose_visualizer",
+                name="robot_pose_visualizer",
+                output="screen",
+                parameters=[
+                    common,
+                    {
+                        "frame_id": "world",
+                        "publish_rate": 10.0,
+                        "axis_length": 0.3,
+                        "axis_width": 0.02,
+                    },
+                ],
+                remappings=[
+                    ("body_pose", body_pose),
+                    ("robot_axes", "/robot_axes"),
+                ],
+            )
+        )
+
     if not is_real:
         actions.extend(
             [

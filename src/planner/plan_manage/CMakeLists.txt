@@ -55,8 +55,12 @@ ament_target_dependencies(open_loop_controller
   std_msgs tf2 tf2_geometry_msgs tf2_ros)
 target_link_libraries(open_loop_controller Eigen3::Eigen)
 
+add_executable(robot_pose_visualizer src/robot_pose_visualizer.cpp)
+ament_target_dependencies(robot_pose_visualizer
+  geometry_msgs nav_msgs rclcpp visualization_msgs)
+
 install(TARGETS
-  scan_planner_node closed_loop_controller open_loop_controller
+  scan_planner_node closed_loop_controller open_loop_controller robot_pose_visualizer
   DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME} OPTIONAL)
