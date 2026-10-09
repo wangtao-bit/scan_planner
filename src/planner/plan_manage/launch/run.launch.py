@@ -51,12 +51,12 @@ def _setup(context):
     init_x, init_y, init_z = initial_position
 
     if is_real:
-        body_pose = "/LIO/odom_vehicle"
-        sensor_pose = "/LIO/odom_imu"
-        cloud = "/LIO/clouds_lidar"
+        body_pose = "/lio_odom"
+        sensor_pose = "/lio_odom"
+        cloud = "/scan_world"
         depth = "/camera/aligned_depth_to_color/image_raw"
-        cloud_is_world = False
-        need_extrinsic = True
+        cloud_is_world = True
+        need_extrinsic = False
         intrinsics = {
             "grid_map.cx": 317.19183349609375,
             "grid_map.cy": 256.4806823730469,
@@ -98,23 +98,23 @@ def _setup(context):
             ],
         )
     ]
-    actions.append(
-        Node(
-            package="robot_state_publisher",
-            executable="robot_state_publisher",
-            name="go2_robot_state_publisher",
-            output="screen",
-            parameters=[
-                common,
-                {
-                    "robot_description": Command(
-                        ["xacro ", os.path.join(go2_share, "xacro", "robot.xacro"),
-                         " use_gazebo:=false"]
-                    )
-                },
-            ],
-        )
-    )
+    # actions.append(
+    #     Node(
+    #         package="robot_state_publisher",
+    #         executable="robot_state_publisher",
+    #         name="go2_robot_state_publisher",
+    #         output="screen",
+    #         parameters=[
+    #             common,
+    #             {
+    #                 "robot_description": Command(
+    #                     ["xacro ", os.path.join(go2_share, "xacro", "robot.xacro"),
+    #                      " use_gazebo:=false"]
+    #                 )
+    #             },
+    #         ],
+    #     )
+    # )
 
     if controller_mode == "open_loop":
         actions.append(

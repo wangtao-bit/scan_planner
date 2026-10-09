@@ -23,6 +23,7 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(traj_utils REQUIRED)
 find_package(visualization_msgs REQUIRED)
+include(/home/unitree/3d_nav/src/scan_planner/cmake/foxy_flann_fix.cmake)
 
 set(scan_planner_dependencies
   ament_index_cpp bspline_opt geometry_msgs nav_msgs path_searching plan_env
@@ -37,18 +38,25 @@ target_include_directories(scan_planner_node PRIVATE include)
 ament_target_dependencies(scan_planner_node ${scan_planner_dependencies})
 target_link_libraries(scan_planner_node Eigen3::Eigen)
 
-foreach(target open_loop_controller closed_loop_controller go2_kinematic_sim go2_gait_publisher)
-  add_executable(${target} src/${target}.cpp)
-  target_include_directories(${target} PRIVATE include)
-  ament_target_dependencies(${target}
-    bspline_opt geometry_msgs nav_msgs rclcpp scan_planner_msgs sensor_msgs
-    std_msgs tf2 tf2_geometry_msgs tf2_ros)
-  target_link_libraries(${target} Eigen3::Eigen)
-endforeach()
+
+
+# Build controllers without VTK dependencies
+add_executable(closed_loop_controller src/closed_loop_controller.cpp)
+target_include_directories(closed_loop_controller PRIVATE include)
+ament_target_dependencies(closed_loop_controller
+  bspline_opt geometry_msgs nav_msgs rclcpp scan_planner_msgs sensor_msgs
+  std_msgs tf2 tf2_geometry_msgs tf2_ros)
+target_link_libraries(closed_loop_controller Eigen3::Eigen)
+
+add_executable(open_loop_controller src/open_loop_controller.cpp)
+target_include_directories(open_loop_controller PRIVATE include)
+ament_target_dependencies(open_loop_controller
+  bspline_opt geometry_msgs nav_msgs rclcpp scan_planner_msgs sensor_msgs
+  std_msgs tf2 tf2_geometry_msgs tf2_ros)
+target_link_libraries(open_loop_controller Eigen3::Eigen)
 
 install(TARGETS
-  scan_planner_node open_loop_controller closed_loop_controller
-  go2_kinematic_sim go2_gait_publisher
+  scan_planner_node closed_loop_controller open_loop_controller
   DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME} OPTIONAL)
@@ -64,7 +72,7 @@ if(BUILD_TESTING)
   find_package(launch_testing_ament_cmake REQUIRED)
   ament_add_gtest(test_reference_path_utils test/test_reference_path_utils.cpp)
   target_include_directories(test_reference_path_utils PRIVATE include)
-  ament_target_dependencies(test_reference_path_utils nav_msgs)
+#  ament_target_dependencies(test_reference_path_utils nav_msgs)
   target_link_libraries(test_reference_path_utils Eigen3::Eigen)
   set(_pytest_disable_plugin_autoload "$ENV{PYTEST_DISABLE_PLUGIN_AUTOLOAD}")
   set(ENV{PYTEST_DISABLE_PLUGIN_AUTOLOAD} "1")

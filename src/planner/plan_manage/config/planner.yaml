@@ -24,7 +24,7 @@ scan_planner_node:
 
     # ============ 机器人形状参数（碰撞检测模型）============
     # 使用前后两个竖直圆柱模拟四足机器人的碰撞体积
-    grid_map.double_cylinder_radius: 0.25 # 双圆柱半径(m) - Go2机器人约0.25m，增大可提高安全裕度但降低通过性
+    grid_map.double_cylinder_radius: 0.3 # 双圆柱半径(m) - Go2机器人约0.25m，增大可提高安全裕度但降低通过性
     grid_map.double_cylinder_offset: 0.18 # 前后圆柱偏移(m) - 沿机器人朝向的前后距离，前圆柱在center+offset*heading，后圆柱在center-offset*heading
     grid_map.body_height: 0.4             # 机身高度(m) - 影响多层导航时的目标高度
 
@@ -52,7 +52,7 @@ scan_planner_node:
 
     # ============ 占据概率更新参数（动态地图）============
     grid_map.p_hit: 0.85                  # 雷达击中障碍时的占据概率增量 - 增大可更快确认障碍
-    grid_map.p_miss: 0.30                 # 射线穿过时的占据概率减量 - 增大可更快清除障碍
+    grid_map.p_miss: 0.50                 # 射线穿过时的占据概率减量 - 增大可更快清除障碍
     grid_map.p_min: 0.12                  # 最小占据概率
     grid_map.p_max: 0.98                  # 最大占据概率
     grid_map.p_occ: 0.80                  # 判定为占据的阈值 - 降低(如0.70)可对动态障碍反应更快
@@ -70,7 +70,7 @@ scan_planner_node:
 
     # ============ 优化器参数（关键避障权重）============
     optimization.lambda_smooth: 1.0       # 平滑性权重 - 增大可使轨迹更平滑
-    optimization.lambda_collision: 1.0    # 碰撞代价权重 - 增大(1.0-5.0)可更激进避障，减小则路径更贴近障碍
+    optimization.lambda_collision: 3.0    # 碰撞代价权重 - 增大(1.0-5.0)可更激进避障，减小则路径更贴近障碍
     optimization.lambda_feasibility: 0.1  # 可行性权重
     optimization.lambda_fitness: 1.0      # 路径拟合权重 - 增大可更好跟踪参考路径
     optimization.dist0: 0.2               # 安全距离阈值(m) - 增大(0.2-0.5)可保持与障碍更远距离
