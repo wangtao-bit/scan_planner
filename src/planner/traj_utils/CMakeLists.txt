@@ -12,7 +12,7 @@ find_package(Eigen3 REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
-include(/home/unitree/3d_nav/src/scan_planner/cmake/foxy_flann_fix.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake/foxy_flann_fix.cmake)
 
 add_library(traj_utils src/planning_visualization.cpp src/polynomial_traj.cpp)
 target_include_directories(traj_utils PUBLIC

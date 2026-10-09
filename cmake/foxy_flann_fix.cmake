@@ -49,30 +49,31 @@ endif()
 
 # Fix VTK library names for Foxy (VTK 7.1 uses versioned library names)
 # PCL brings in VTK dependencies but doesn't handle versioned names correctly
-if(VTK_FOUND OR PCL_FOUND)
-    # Remove VTK library targets that don't exist as plain -lvtkXXX
-    # They exist as -lvtkXXX-7.1
-    set(VTK_VERSION_SUFFIX "-7.1")
-    
-    # List of common VTK libraries that need version suffix
-    set(VTK_LIBS_TO_FIX
-        vtkChartsCore vtkCommonColor vtkCommonCore vtksys
-        vtkCommonDataModel vtkCommonMath vtkCommonMisc vtkCommonSystem
-        vtkCommonTransforms vtkCommonExecutionModel vtkFiltersGeneral
-        vtkCommonComputationalGeometry vtkFiltersCore vtkInfovisCore
-        vtkFiltersExtraction vtkFiltersStatistics vtkImagingFourier
-        vtkImagingCore vtkalglib vtkRenderingContext2D vtkRenderingCore
-        vtkFiltersGeometry vtkFiltersSources vtkRenderingFreeType
-        vtkFiltersModeling vtkImagingSources vtkInteractionStyle
-        vtkInteractionWidgets vtkFiltersHybrid vtkImagingColor
-        vtkImagingGeneral vtkImagingHybrid vtkIOImage vtkDICOMParser
-        vtkmetaio vtkRenderingAnnotation vtkRenderingVolume vtkIOXML
-        vtkIOCore vtkIOXMLParser vtkIOGeometry vtkIOLegacy vtkIOPLY
-        vtkRenderingLOD vtkViewsContext2D vtkViewsCore
-        vtkRenderingContextOpenGL2 vtkRenderingOpenGL2
-    )
-    
-    foreach(vtk_lib ${VTK_LIBS_TO_FIX})
+# Apply unconditionally since PCL dependency may be transitive
+set(VTK_VERSION_SUFFIX "-7.1")
+
+# List of common VTK libraries that need version suffix
+set(VTK_LIBS_TO_FIX
+    vtkChartsCore vtkCommonColor vtkCommonCore vtksys
+    vtkCommonDataModel vtkCommonMath vtkCommonMisc vtkCommonSystem
+    vtkCommonTransforms vtkCommonExecutionModel vtkFiltersGeneral
+    vtkCommonComputationalGeometry vtkFiltersCore vtkInfovisCore
+    vtkFiltersExtraction vtkFiltersStatistics vtkImagingFourier
+    vtkImagingCore vtkalglib vtkRenderingContext2D vtkRenderingCore
+    vtkFiltersGeometry vtkFiltersSources vtkRenderingFreeType
+    vtkFiltersModeling vtkImagingSources vtkInteractionStyle
+    vtkInteractionWidgets vtkFiltersHybrid vtkImagingColor
+    vtkImagingGeneral vtkImagingHybrid vtkIOImage vtkDICOMParser
+    vtkmetaio vtkRenderingAnnotation vtkRenderingVolume vtkIOXML
+    vtkIOCore vtkIOXMLParser vtkIOGeometry vtkIOLegacy vtkIOPLY
+    vtkRenderingLOD vtkViewsContext2D vtkViewsCore
+    vtkRenderingContextOpenGL2 vtkRenderingOpenGL2
+)
+
+set(VTK_FIXED_COUNT 0)
+foreach(vtk_lib ${VTK_LIBS_TO_FIX})
+    # Only create if target doesn't exist
+    if(NOT TARGET ${vtk_lib})
         # Find the versioned library
         find_library(${vtk_lib}_VERSIONED_LIBRARY
             NAMES ${vtk_lib}${VTK_VERSION_SUFFIX}
@@ -82,14 +83,15 @@ if(VTK_FOUND OR PCL_FOUND)
         
         if(${vtk_lib}_VERSIONED_LIBRARY)
             # Create an alias target
-            if(NOT TARGET ${vtk_lib})
-                add_library(${vtk_lib} UNKNOWN IMPORTED)
-                set_target_properties(${vtk_lib} PROPERTIES
-                    IMPORTED_LOCATION "${${vtk_lib}_VERSIONED_LIBRARY}"
-                )
-            endif()
+            add_library(${vtk_lib} UNKNOWN IMPORTED)
+            set_target_properties(${vtk_lib} PROPERTIES
+                IMPORTED_LOCATION "${${vtk_lib}_VERSIONED_LIBRARY}"
+            )
+            math(EXPR VTK_FIXED_COUNT "${VTK_FIXED_COUNT} + 1")
         endif()
-    endforeach()
-    
-    message(STATUS "Applied VTK 7.1 versioned library fix for Foxy")
+    endif()
+endforeach()
+
+if(VTK_FIXED_COUNT GREATER 0)
+    message(STATUS "Applied VTK 7.1 versioned library fix for Foxy: ${VTK_FIXED_COUNT} libraries")
 endif()

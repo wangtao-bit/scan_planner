@@ -11,7 +11,7 @@ find_package(Eigen3 REQUIRED)
 find_package(path_searching REQUIRED)
 find_package(plan_env REQUIRED)
 find_package(rclcpp REQUIRED)
-include(/home/unitree/3d_nav/src/scan_planner/cmake/foxy_flann_fix.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake/foxy_flann_fix.cmake)
 
 add_library(bspline_opt
   src/uniform_bspline.cpp
@@ -31,7 +31,6 @@ ament_export_dependencies(Eigen3 path_searching plan_env rclcpp)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
-include(/home/unitree/3d_nav/src/scan_planner/cmake/foxy_flann_fix.cmake)
   ament_add_gtest(test_uniform_bspline test/test_uniform_bspline.cpp)
   if(TARGET test_uniform_bspline)
     target_link_libraries(test_uniform_bspline bspline_opt Eigen3::Eigen)
