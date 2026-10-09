@@ -10,7 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(plan_env REQUIRED)
 find_package(rclcpp REQUIRED)
-include(/home/unitree/3d_nav/src/scan_planner/cmake/foxy_flann_fix.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake/foxy_flann_fix.cmake)
 
 add_library(path_searching src/dyn_a_star.cpp)
 target_include_directories(path_searching PUBLIC

@@ -23,7 +23,7 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(traj_utils REQUIRED)
 find_package(visualization_msgs REQUIRED)
-include(/home/unitree/3d_nav/src/scan_planner/cmake/foxy_flann_fix.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake/foxy_flann_fix.cmake)
 
 set(scan_planner_dependencies
   ament_index_cpp bspline_opt geometry_msgs nav_msgs path_searching plan_env
