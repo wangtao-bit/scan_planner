@@ -4,11 +4,19 @@ closed_loop_controller:
     time_forward: 0.8
     heading_error_threshold: 0.8
     kp_pos: 0.8
+    ki_pos: 0.15
+    kd_pos: 0.3
     kp_yaw: 1.5
     max_vx: 0.75
     max_vy: 0.35
     max_vyaw: 1.0
     finish_dist: 0.15
+    # Advanced PID control parameters
+    integral_limit: 0.5
+    adaptive_time_gain: 2.0
+    heading_speed_decay: 0.3
+    use_acceleration_feedforward: true
+    feedforward_priority: 0.7
 
 open_loop_controller:
   ros__parameters:
