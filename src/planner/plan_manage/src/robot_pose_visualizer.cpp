@@ -22,11 +22,14 @@ public:
     const double axis_width = declare_parameter<double>("axis_width", 0.02);
 
     // 坐标轴几何与颜色固定不变，只构造一次，定时器里仅更新 pose 和 stamp
+    marker_.header.frame_id = frame_id_;  // 固定用规划坐标系(world)，不继承 /lio_odom 的 map，避免 RViz 无 TF 丢弃
     marker_.ns = "robot_axes";
     marker_.id = 0;
     marker_.type = visualization_msgs::msg::Marker::LINE_LIST;
     marker_.action = visualization_msgs::msg::Marker::ADD;
     marker_.scale.x = axis_width;
+    marker_.pose.orientation.w = 1.0;  // 初始化为单位四元数
+    
     const auto point = [](double x, double y, double z) {
       geometry_msgs::msg::Point p;
       p.x = x; p.y = y; p.z = z;
@@ -37,6 +40,7 @@ public:
       c.r = r; c.g = g; c.b = b; c.a = 1.0f;
       return c;
     };
+    // RGB 轴：原点到各轴端点
     marker_.points = {point(0, 0, 0), point(axis_length, 0, 0),
                       point(0, 0, 0), point(0, axis_length, 0),
                       point(0, 0, 0), point(0, 0, axis_length)};
@@ -44,27 +48,33 @@ public:
                       color(0, 1, 0), color(0, 1, 0),
                       color(0, 0, 1), color(0, 0, 1)};
 
-    marker_pub_ = create_publisher<visualization_msgs::msg::Marker>("robot_axes", 1);
+    // Marker publisher 使用 TransientLocal 持久化，队列深度 1
+    marker_pub_ = create_publisher<visualization_msgs::msg::Marker>(
+        "robot_axes", rclcpp::QoS(1).transient_local());
+    
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
         "body_pose", rclcpp::SensorDataQoS().keep_last(1),
         std::bind(&RobotPoseVisualizer::odomCallback, this, std::placeholders::_1));
+    
     timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / publish_rate),
                                std::bind(&RobotPoseVisualizer::publishMarker, this));
-    RCLCPP_INFO(get_logger(), "Robot pose visualizer publishing at %.1f Hz", publish_rate);
+    
+    RCLCPP_INFO(get_logger(), "Robot pose visualizer: frame=%s, rate=%.1fHz", 
+                frame_id_.c_str(), publish_rate);
   }
 
 private:
   void odomCallback(const nav_msgs::msg::Odometry::ConstSharedPtr msg)
   {
-    // 单线程执行器下回调与定时器不会并发，无需加锁
-    marker_.header.frame_id = msg->header.frame_id.empty() ? frame_id_ : msg->header.frame_id;
+    // 只缓存位姿，frame_id 始终使用参数配置的固定值
     marker_.pose = msg->pose.pose;
     has_pose_ = true;
   }
 
   void publishMarker()
   {
-    if (!has_pose_ || marker_pub_->get_subscription_count() == 0) return;
+    if (!has_pose_) return;
+    // 即使没有订阅者也发布（TransientLocal 会保留最后一条消息）
     marker_.header.stamp = now();
     marker_pub_->publish(marker_);
   }
