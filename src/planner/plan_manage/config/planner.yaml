@@ -51,13 +51,19 @@ scan_planner_node:
     grid_map.skip_pixel: 2                # 深度图采样间隔(像素) - 增大可减少计算量
 
     # ============ 占据概率更新参数（动态地图）============
-    grid_map.p_hit: 0.85                  # 雷达击中障碍时的占据概率增量 - 增大可更快确认障碍
-    grid_map.p_miss: 0.50                 # 射线穿过时的占据概率减量 - 增大可更快清除障碍
+    # 使用 logit(p)=ln(p/(1-p))：p_hit>0.5 增加占据；p_miss必须<0.5 才能清除，越小清得越快。
+    # 注意：p_miss=0.50 时 logit=0，射线穿过不会降占据，障碍会永久残留。
+    grid_map.p_hit: 0.85                  # 击中障碍的概率，>0.5；越大障碍确认越快
+    grid_map.p_miss: 0.40                 # 射线穿过的概率，必须<0.5；越小清除越快（推荐 0.35~0.45）
     grid_map.p_min: 0.12                  # 最小占据概率
     grid_map.p_max: 0.98                  # 最大占据概率
     grid_map.p_occ: 0.80                  # 判定为占据的阈值 - 降低(如0.70)可对动态障碍反应更快
     grid_map.max_ray_length: 5.0          # 最大射线长度(m) - 超出此距离的点不用于地图更新
     grid_map.vis_height: 0.3              # 可视化高度(m)
+    # 跨机 RViz：大 PointCloud2 易触发 DDS 分包丢失(invalid data size)。降频+抽稀仅影响显示，不影响规划。
+    grid_map.vis_publish_rate: 5.0        # 占据/膨胀点云发布频率(Hz)；跨机建议 ≤2，本机可更高
+    grid_map.vis_stride: 2                # 可视化体素步长，1=最密，2/3 更稀
+    grid_map.max_vis_points: 50000        # 单帧可视化点云上限（越大越密，跨机过大易卡）
     grid_map.show_occ_time: false         # 是否显示占据时间
 
     # ============ 路径管理器参数（动力学约束）============

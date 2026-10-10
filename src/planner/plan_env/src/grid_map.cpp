@@ -13,6 +13,19 @@ void load_parameter(rclcpp::Node *node, const std::string &name, T &value, const
     node->declare_parameter<T>(name, default_value);
   node->get_parameter(name, value);
 }
+
+void downsample_cloud_inplace(pcl::PointCloud<pcl::PointXYZ> &cloud, int max_points)
+{
+  if (max_points <= 0 || static_cast<int>(cloud.size()) <= max_points)
+    return;
+  const size_t step =
+      (cloud.size() + static_cast<size_t>(max_points) - 1) / static_cast<size_t>(max_points);
+  pcl::PointCloud<pcl::PointXYZ> filtered;
+  filtered.reserve(static_cast<size_t>(max_points));
+  for (size_t i = 0; i < cloud.size(); i += step)
+    filtered.push_back(cloud.points[i]);
+  cloud.swap(filtered);
+}
 }  // namespace
 
 void GridMap::initMap(rclcpp::Node *node)
@@ -55,7 +68,16 @@ void GridMap::initMap(rclcpp::Node *node)
   load_parameter(node_, "grid_map.max_ray_length", mp_.max_ray_length_, -0.1);
 
   load_parameter(node_, "grid_map.vis_height", mp_.vis_height_, 0.3);
+  load_parameter(node_, "grid_map.vis_publish_rate", mp_.vis_publish_rate_, 1.0);
+  load_parameter(node_, "grid_map.vis_stride", mp_.vis_stride_, 3);
+  load_parameter(node_, "grid_map.max_vis_points", mp_.max_vis_points_, 12000);
   load_parameter(node_, "grid_map.show_occ_time", mp_.show_occ_time_, false);
+  if (mp_.vis_publish_rate_ <= 0.0)
+    mp_.vis_publish_rate_ = 1.0;
+  if (mp_.vis_stride_ < 1)
+    mp_.vis_stride_ = 1;
+  if (mp_.max_vis_points_ < 1000)
+    mp_.max_vis_points_ = 1000;
 
   load_parameter(node_, "grid_map.frame_id", mp_.frame_id_, string("world"));
   load_parameter(node_, "grid_map.sliding_map_frame_id", mp_.sliding_map_frame_id_, string("sliding_map"));
@@ -162,15 +184,22 @@ void GridMap::initMap(rclcpp::Node *node)
 
   occ_timer_ = node_->create_wall_timer(std::chrono::milliseconds(50),
                                         std::bind(&GridMap::updateOccupancyCallback, this));
-  vis_timer_ = node_->create_wall_timer(std::chrono::milliseconds(50),
+  // Remote RViz: large PointCloud2 + Best Effort causes CycloneDDS "invalid data size".
+  const int vis_period_ms =
+      std::max(50, static_cast<int>(std::lround(1000.0 / mp_.vis_publish_rate_)));
+  vis_timer_ = node_->create_wall_timer(std::chrono::milliseconds(vis_period_ms),
                                         std::bind(&GridMap::visCallback, this));
+  RCLCPP_INFO(node_->get_logger(),
+              "[GridMap] vis publish: %.1f Hz (period %d ms), stride %d, max_points %d, QoS=Reliable",
+              mp_.vis_publish_rate_, vis_period_ms, mp_.vis_stride_, mp_.max_vis_points_);
 
-  map_pub_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("grid_map/occupancy", rclcpp::SensorDataQoS());
-  map_inf_pub_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("grid_map/occupancy_inflate", rclcpp::SensorDataQoS());
+  const auto map_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile();
+  map_pub_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("grid_map/occupancy", map_qos);
+  map_inf_pub_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("grid_map/occupancy_inflate", map_qos);
   sliding_map_bbox_pub_ = node_->create_publisher<visualization_msgs::msg::Marker>("grid_map/sliding_map_bbox", 10);
 
-  unknown_pub_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("grid_map/unknown", rclcpp::SensorDataQoS());
-  depth_cloud_pub_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("grid_map/depth_cloud", rclcpp::SensorDataQoS());
+  unknown_pub_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("grid_map/unknown", map_qos);
+  depth_cloud_pub_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("grid_map/depth_cloud", map_qos);
   extrinsic_pose_pub_ = node_->create_publisher<nav_msgs::msg::Odometry>("grid_map/sensor_pose_extrinsic", 10);
 
   md_.occ_need_update_ = false;
@@ -732,9 +761,12 @@ Eigen::Vector3d GridMap::closetPointInMap(const Eigen::Vector3d &pt, const Eigen
 
 void GridMap::visCallback()
 {
-
-  publishMap();
-  publishMapInflate(true);
+  // Alternate heavy clouds so remote DDS is not hit by two large samples at once.
+  static int vis_tick = 0;
+  if ((vis_tick++ & 1) == 0)
+    publishMapInflate(true);
+  else
+    publishMap();
   publishSlidingMapFrame();
   publishSlidingMapBBox();
   publishDepthCloud();
@@ -948,10 +980,11 @@ void GridMap::publishMap()
 
   Eigen::Vector3i min_cut = mp_.map_bound_min_idx_;
   Eigen::Vector3i max_cut = mp_.map_bound_max_idx_;
+  const int stride = mp_.vis_stride_;
 
-  for (int x = min_cut(0); x <= max_cut(0); ++x)
-    for (int y = min_cut(1); y <= max_cut(1); ++y)
-      for (int z = min_cut(2); z <= max_cut(2); ++z)
+  for (int x = min_cut(0); x <= max_cut(0); x += stride)
+    for (int y = min_cut(1); y <= max_cut(1); y += stride)
+      for (int z = min_cut(2); z <= max_cut(2); z += stride)
       {
         if (md_.occupancy_buffer_[toAddress(x, y, z)] < mp_.min_occupancy_log_)
           continue;
@@ -966,6 +999,7 @@ void GridMap::publishMap()
         cloud.push_back(pt);
       }
 
+  downsample_cloud_inplace(cloud, mp_.max_vis_points_);
   cloud.width = cloud.points.size();
   cloud.height = 1;
   cloud.is_dense = true;
@@ -979,6 +1013,7 @@ void GridMap::publishMap()
 
 void GridMap::publishMapInflate(bool all_info)
 {
+  (void)all_info;
 
   if (map_inf_pub_->get_subscription_count() == 0)
     return;
@@ -988,11 +1023,12 @@ void GridMap::publishMapInflate(bool all_info)
 
   Eigen::Vector3i min_cut = mp_.map_bound_min_idx_;
   Eigen::Vector3i max_cut = mp_.map_bound_max_idx_;
+  const int stride = mp_.vis_stride_;
 
   const std::vector<char> &inflate_buffer = md_.occupancy_buffer_inflate_;
-  for (int x = min_cut(0); x <= max_cut(0); ++x)
-    for (int y = min_cut(1); y <= max_cut(1); ++y)
-      for (int z = min_cut(2); z <= max_cut(2); ++z)
+  for (int x = min_cut(0); x <= max_cut(0); x += stride)
+    for (int y = min_cut(1); y <= max_cut(1); y += stride)
+      for (int z = min_cut(2); z <= max_cut(2); z += stride)
       {
         if (inflate_buffer[toAddress(x, y, z)] == 0)
           continue;
@@ -1008,6 +1044,7 @@ void GridMap::publishMapInflate(bool all_info)
         cloud.push_back(pt);
       }
 
+  downsample_cloud_inplace(cloud, mp_.max_vis_points_);
   cloud.width = cloud.points.size();
   cloud.height = 1;
   cloud.is_dense = true;
@@ -1017,8 +1054,6 @@ void GridMap::publishMapInflate(bool all_info)
   pcl::toROSMsg(cloud, cloud_msg);
   cloud_msg.header.stamp = node_->now();
   map_inf_pub_->publish(cloud_msg);
-
-  // ROS_INFO("pub map");
 }
 
 void GridMap::publishSlidingMapFrame()

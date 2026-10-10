@@ -83,6 +83,9 @@ struct MappingParameters {
 
   /* visualization and computation time display */
   double vis_height_, ground_height_;
+  double vis_publish_rate_;  // Hz for remote RViz point clouds
+  int vis_stride_;           // voxel stride when publishing occupancy clouds
+  int max_vis_points_;       // hard cap on published visualization points
   bool show_occ_time_;
 
   /* mapping sensor input */
