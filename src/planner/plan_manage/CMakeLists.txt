@@ -46,9 +46,13 @@ foreach(target open_loop_controller closed_loop_controller go2_kinematic_sim go2
   target_link_libraries(${target} Eigen3::Eigen)
 endforeach()
 
+add_executable(robot_pose_visualizer src/robot_pose_visualizer.cpp)
+ament_target_dependencies(robot_pose_visualizer
+  geometry_msgs nav_msgs rclcpp visualization_msgs)
+
 install(TARGETS
   scan_planner_node open_loop_controller closed_loop_controller
-  go2_kinematic_sim go2_gait_publisher
+  go2_kinematic_sim go2_gait_publisher robot_pose_visualizer
   DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME} OPTIONAL)
