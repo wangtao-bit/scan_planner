@@ -187,7 +187,8 @@ def _setup(context):
             )
         )
 
-    # 实机模式：以坐标轴 Marker 显示机器人位姿（100Hz 里程计降频到 10Hz 发布）
+    # 实机模式：以坐标轴 Marker + TF 显示机器人位姿（100Hz 里程计降频到 10Hz 发布）
+    # RViz 添加 TF 显示后可用其 Marker Scale 滑条实时调节坐标轴大小
     if is_real:
         actions.append(
             Node(
@@ -199,6 +200,7 @@ def _setup(context):
                     common,
                     {
                         "frame_id": "world",
+                        "tf_child_frame": "robot_base",
                         "publish_rate": 10.0,
                         "axis_length": 0.3,
                         "axis_width": 0.02,
