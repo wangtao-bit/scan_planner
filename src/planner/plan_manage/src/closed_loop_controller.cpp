@@ -39,6 +39,8 @@ public:
     heading_speed_decay_ = declare_parameter<double>("heading_speed_decay", 0.3);
     use_acceleration_feedforward_ = declare_parameter<bool>("use_acceleration_feedforward", true);
     feedforward_priority_ = declare_parameter<double>("feedforward_priority", 0.7);
+    // Gazebo p3d (and scan_replan_fsm) treat body_pose twist as world-frame velocity.
+    odom_twist_in_world_ = declare_parameter<bool>("odom_twist_in_world", false);
 
     bspline_sub_ = create_subscription<scan_planner_msgs::msg::Bspline>(
         "planning/bspline", 10,
@@ -134,11 +136,18 @@ private:
     odom_yaw_ = tf2::getYaw(msg->pose.pose.orientation);
     odom_vel_ << msg->twist.twist.linear.x, msg->twist.twist.linear.y, msg->twist.twist.linear.z;
 
-    // 转换到世界坐标系
-    const double c = std::cos(odom_yaw_);
-    const double s = std::sin(odom_yaw_);
-    odom_vel_world_.x() = c * odom_vel_.x() - s * odom_vel_.y();
-    odom_vel_world_.y() = s * odom_vel_.x() + c * odom_vel_.y();
+    if (odom_twist_in_world_)
+    {
+      odom_vel_world_ = odom_vel_.head<2>();
+    }
+    else
+    {
+      // 转换到世界坐标系
+      const double c = std::cos(odom_yaw_);
+      const double s = std::sin(odom_yaw_);
+      odom_vel_world_.x() = c * odom_vel_.x() - s * odom_vel_.y();
+      odom_vel_world_.y() = s * odom_vel_.x() + c * odom_vel_.y();
+    }
 
     have_odom_ = true;
   }
@@ -286,6 +295,7 @@ private:
   double heading_speed_decay_;
   bool use_acceleration_feedforward_;
   double feedforward_priority_;
+  bool odom_twist_in_world_;
 
   // 状态变量
   Eigen::Vector2d pos_error_integral_{Eigen::Vector2d::Zero()};

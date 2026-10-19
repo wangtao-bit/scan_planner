@@ -1,0 +1,22 @@
+# Passed to: ros2 launch go2_sim_bringup sim.launch.py config:=<this file>
+# Requires workspace ~/go2_sim_ws to be built and sourced.
+#
+# Velodyne is required so SCAN-Planner can build a local occupancy map.
+
+world: indoor_complex.world   # from go2_sim_bringup/worlds/
+lidar: velodyne    # publishes /velodyne_points
+controller: rl_sar # rl_sar (RL policy, climbs stairs) | champ
+rl_sar:
+  policy: himloco
+  auto_nav: true        # stand up + navigation mode, then follow /cmd_vel
+  auto_reset: false
+  stuck_recovery: true
+  odom_rate: 50.0
+spawn:
+  x: 0.5
+  y: 0.5
+  z: 0.275
+  yaw: 0.0         # face east narrow corridor
+gui: true
+rviz: false
+dynamic_obstacles: false

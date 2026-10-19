@@ -24,7 +24,7 @@ scan_planner_node:
 
     # ============ 机器人形状参数（碰撞检测模型）============
     # 使用前后两个竖直圆柱模拟四足机器人的碰撞体积
-    grid_map.double_cylinder_radius: 0.25 # 双圆柱半径(m) - Go2机器人约0.25m，增大可提高安全裕度但降低通过性
+    grid_map.double_cylinder_radius: 0.30 # 双圆柱半径(m) - Go2半宽约0.16m/半长约0.35m，0.30留出直角处的跟踪误差余量；增大可提高安全裕度但降低通过性
     grid_map.double_cylinder_offset: 0.18 # 前后圆柱偏移(m) - 沿机器人朝向的前后距离，前圆柱在center+offset*heading，后圆柱在center-offset*heading
     grid_map.body_height: 0.4             # 机身高度(m) - 影响多层导航时的目标高度
 

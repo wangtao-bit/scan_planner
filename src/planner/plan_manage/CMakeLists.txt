@@ -37,22 +37,19 @@ target_include_directories(scan_planner_node PRIVATE include)
 ament_target_dependencies(scan_planner_node ${scan_planner_dependencies})
 target_link_libraries(scan_planner_node Eigen3::Eigen)
 
-foreach(target open_loop_controller closed_loop_controller go2_kinematic_sim go2_gait_publisher)
-  add_executable(${target} src/${target}.cpp)
-  target_include_directories(${target} PRIVATE include)
-  ament_target_dependencies(${target}
-    bspline_opt geometry_msgs nav_msgs rclcpp scan_planner_msgs sensor_msgs
-    std_msgs tf2 tf2_geometry_msgs tf2_ros)
-  target_link_libraries(${target} Eigen3::Eigen)
-endforeach()
+add_executable(closed_loop_controller src/closed_loop_controller.cpp)
+target_include_directories(closed_loop_controller PRIVATE include)
+ament_target_dependencies(closed_loop_controller
+  bspline_opt geometry_msgs nav_msgs rclcpp scan_planner_msgs sensor_msgs
+  std_msgs tf2 tf2_geometry_msgs tf2_ros)
+target_link_libraries(closed_loop_controller Eigen3::Eigen)
 
 add_executable(robot_pose_visualizer src/robot_pose_visualizer.cpp)
 ament_target_dependencies(robot_pose_visualizer
   geometry_msgs nav_msgs rclcpp visualization_msgs)
 
 install(TARGETS
-  scan_planner_node open_loop_controller closed_loop_controller
-  go2_kinematic_sim go2_gait_publisher robot_pose_visualizer
+  scan_planner_node closed_loop_controller robot_pose_visualizer
   DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME} OPTIONAL)
@@ -60,6 +57,7 @@ install(FILES launch/default.rviz DESTINATION share/${PROJECT_NAME}/rviz OPTIONA
 install(PROGRAMS
   scripts/keypoint_recorder.py
   scripts/reference_path_publisher.py
+  scripts/gazebo_sim_bridge.py
   DESTINATION lib/${PROJECT_NAME} OPTIONAL)
 
 if(BUILD_TESTING)
