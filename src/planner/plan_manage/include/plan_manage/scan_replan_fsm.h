@@ -11,6 +11,7 @@
 #include <std_msgs/msg/bool.hpp>
 #include <vector>
 #include <visualization_msgs/msg/marker.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 
 #include <bspline_opt/bspline_optimizer.h>
 #include <plan_env/grid_map.h>
@@ -60,6 +61,8 @@ namespace scan_planner
     double rviz_goal_height_;
     double self_inflation_z_up_, self_inflation_z_down_;
     double self_double_cylinder_radius_, self_double_cylinder_offset_;
+    // 与 grid_map.footprint_yaw_margin 同值：轨迹足迹可视化时一并画出 ±margin 姿态
+    double footprint_yaw_margin_;
     double body_height_;
     std::string self_inflation_frame_id_;
 
@@ -96,6 +99,7 @@ namespace scan_planner
     rclcpp::Publisher<scan_planner_msgs::msg::Bspline>::SharedPtr bspline_pub_;
     rclcpp::Publisher<scan_planner_msgs::msg::DataDisp>::SharedPtr data_disp_pub_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr self_inflation_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr traj_footprint_pub_;
 
     /* helper functions */
     bool callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj); // front-end and back-end method
@@ -116,6 +120,8 @@ namespace scan_planner
     void getLocalTarget();
     void finishProcess();
     void publishSelfInflationMarker();
+  // 沿局部轨迹按弧长采样，发布双圆柱足迹：切线姿态(蓝) + 切线±yaw_margin(橙)
+  void publishTrajFootprint(UniformBspline &pos_traj);
     double getOdomYaw() const;
     double estimateYawFromSegment(const Eigen::Vector3d &from, const Eigen::Vector3d &to) const;
     void updateLocalTrajTimeFreeze();

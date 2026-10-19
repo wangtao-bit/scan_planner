@@ -61,6 +61,9 @@ struct MappingParameters {
   double resolution_, resolution_inv_;
   double obstacles_inflation_z_up, obstacles_inflation_z_down;
   double double_cylinder_radius_, double_cylinder_offset_;
+  // 朝向包络半角(rad)：碰撞检测时额外检查 yaw±margin 的双圆柱姿态，
+  // 覆盖直角弯中机器人真实朝向滞后于轨迹切线、原地旋转扫掠的情况。0 = 关闭
+  double footprint_yaw_margin_;
   bool map_sliding_en_;
   double map_sliding_thresh_;
   int map_sliding_thresh_vox_;
@@ -170,6 +173,7 @@ public:
   inline int getOccupancy(Eigen::Vector3d pos);
   inline int getOccupancy(Eigen::Vector3i id);
   inline int getInflateOccupancy(Eigen::Vector3d pos, double yaw);
+  inline int getDoubleCylinderOccupancy(const Eigen::Vector3d &pos, double yaw);
 
   inline void boundIndex(Eigen::Vector3i& id);
   inline bool isUnknown(const Eigen::Vector3i& id);
@@ -369,6 +373,21 @@ inline int GridMap::getOccupancy(Eigen::Vector3d pos) {
 }
 
 inline int GridMap::getInflateOccupancy(Eigen::Vector3d pos, double yaw) {
+  // 朝向包络：除切线姿态外，额外检查 yaw±margin 的姿态。
+  // 直角弯中闭环控制下机器人真实朝向滞后于轨迹切线（最大可接近
+  // heading_error_threshold），且横移时轨迹切线=速度方向≠机头方向，
+  // 后圆柱实际位置可比模型偏出 2*offset*sin(δ/2)。包络检查保证这段
+  // 旋转扫掠范围内均无碰撞。
+  const int occ = getDoubleCylinderOccupancy(pos, yaw);
+  if (occ != 0 || mp_.footprint_yaw_margin_ <= 1e-3)
+    return occ;
+  const int occ_plus = getDoubleCylinderOccupancy(pos, yaw + mp_.footprint_yaw_margin_);
+  if (occ_plus != 0)
+    return occ_plus;
+  return getDoubleCylinderOccupancy(pos, yaw - mp_.footprint_yaw_margin_);
+}
+
+inline int GridMap::getDoubleCylinderOccupancy(const Eigen::Vector3d &pos, double yaw) {
   Eigen::Vector3d heading(std::cos(yaw), std::sin(yaw), 0.0);
   Eigen::Vector3d front = pos + mp_.double_cylinder_offset_ * heading;
   Eigen::Vector3d rear = pos - mp_.double_cylinder_offset_ * heading;

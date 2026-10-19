@@ -7,6 +7,9 @@ namespace scan_planner
 {
   namespace
   {
+    // 高频失败路径的日志节流时钟（steady clock，不受仿真时间跳变影响）
+    rclcpp::Clock g_log_clock(RCL_STEADY_TIME);
+
     void applyLinearZReference(std::vector<Eigen::Vector3d> &points, const double start_z, const double target_z)
     {
       if (points.empty())
@@ -85,15 +88,15 @@ namespace scan_planner
   {
 
     static int count = 0;
-    std::cout << endl
-              << "[rebo replan]: -------------------------------------" << count++ << std::endl;
-    cout.precision(3);
-    cout << "start: " << start_pt.transpose() << ", " << start_vel.transpose() << "\ngoal:" << local_target_pt.transpose() << ", " << local_target_vel.transpose()
-         << endl;
+    ++count;
+    RCLCPP_INFO_THROTTLE(node_->get_logger(), g_log_clock, 2000,
+                         "[rebo replan #%d] start=(%.2f,%.2f,%.2f) goal=(%.2f,%.2f,%.2f)", count,
+                         start_pt(0), start_pt(1), start_pt(2),
+                         local_target_pt(0), local_target_pt(1), local_target_pt(2));
 
     if ((start_pt - local_target_pt).norm() < 0.2)
     {
-      cout << "Close to goal" << endl;
+      RCLCPP_INFO_THROTTLE(node_->get_logger(), g_log_clock, 2000, "Close to goal");
       continuous_failures_count_++;
       return false;
     }
@@ -266,7 +269,8 @@ namespace scan_planner
 
     /*** STEP 2: OPTIMIZE ***/
     bool flag_step_1_success = bspline_optimizer_rebound_->BsplineOptimizeTrajRebound(ctrl_pts, ts);
-    cout << "first_optimize_step_success=" << flag_step_1_success << endl;
+    RCLCPP_INFO_THROTTLE(node_->get_logger(), g_log_clock, 2000,
+                         "first_optimize_step_success=%d", flag_step_1_success ? 1 : 0);
     if (!flag_step_1_success)
     {
       // visualization_->displayOptimalList( ctrl_pts, vis_id );
@@ -286,7 +290,7 @@ namespace scan_planner
     bool flag_step_2_success = true;
     if (!pos.checkFeasibility(ratio, false))
     {
-      cout << "Need to reallocate time." << endl;
+      RCLCPP_INFO_THROTTLE(node_->get_logger(), g_log_clock, 2000, "Need to reallocate time.");
 
       Eigen::MatrixXd optimal_control_points;
       flag_step_2_success = refineTrajAlgo(pos, start_end_derivatives, ratio, ts, optimal_control_points);
@@ -296,7 +300,8 @@ namespace scan_planner
 
     if (!flag_step_2_success || !checkDynamicFeasibility(pos))
     {
-      printf("\033[34mThis refined trajectory is unsafe or dynamically infeasible. Skip publishing it.\n\033[0m");
+      RCLCPP_WARN_THROTTLE(node_->get_logger(), g_log_clock, 2000,
+                           "This refined trajectory is unsafe or dynamically infeasible. Skip publishing it.");
       continuous_failures_count_++;
       return false;
     }
@@ -306,8 +311,9 @@ namespace scan_planner
     // save planned results
     updateTrajInfo(pos, node_->now());
 
-    cout << "total time:\033[42m" << (t_init + t_opt + t_refine)
-         << "\033[0m,optimize:" << (t_init + t_opt) << ",refine:" << t_refine << endl;
+    RCLCPP_INFO_THROTTLE(node_->get_logger(), g_log_clock, 2000,
+                         "total time: %.3fs (optimize: %.3f, refine: %.3f)",
+                         (t_init + t_opt + t_refine), (t_init + t_opt), t_refine);
 
     // success. YoY
     continuous_failures_count_ = 0;
@@ -520,7 +526,7 @@ namespace scan_planner
       Eigen::Vector3d vel = vel_traj.evaluateDeBoorT(tc);
       if (vel.norm() > vel_limit)
       {
-        RCLCPP_WARN(node_->get_logger(),
+        RCLCPP_WARN_THROTTLE(node_->get_logger(), g_log_clock, 2000,
                     "Dynamic feasibility failed: velocity at t=%.3f is %.3f > %.3f",
                     tc, vel.norm(), vel_limit);
         return false;
@@ -529,7 +535,7 @@ namespace scan_planner
       Eigen::Vector3d acc = acc_traj.evaluateDeBoorT(tc);
       if (acc.norm() > acc_limit)
       {
-        RCLCPP_WARN(node_->get_logger(),
+        RCLCPP_WARN_THROTTLE(node_->get_logger(), g_log_clock, 2000,
                     "Dynamic feasibility failed: acceleration at t=%.3f is %.3f > %.3f",
                     tc, acc.norm(), acc_limit);
         return false;

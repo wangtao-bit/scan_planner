@@ -3,7 +3,7 @@
 #
 # Velodyne is required so SCAN-Planner can build a local occupancy map.
 
-world: indoor_complex.world   # from go2_sim_bringup/worlds/
+world: outdoor_complex.world   # from go2_sim_bringup/worlds/
 lidar: velodyne    # publishes /velodyne_points
 controller: rl_sar # rl_sar (RL policy, climbs stairs) | champ
 rl_sar:

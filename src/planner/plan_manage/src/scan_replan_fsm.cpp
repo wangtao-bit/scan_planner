@@ -13,6 +13,9 @@ namespace
     if (!node->has_parameter(name)) node->declare_parameter<T>(name, default_value);
     return node->get_parameter(name).get_value<T>();
   }
+
+  // 高频失败路径的日志节流时钟（steady clock，不受仿真时间跳变影响）
+  rclcpp::Clock g_log_clock(RCL_STEADY_TIME);
 } // namespace
 
 namespace scan_planner
@@ -46,6 +49,7 @@ namespace scan_planner
     self_inflation_z_down_ = load_parameter<double>(node_, "grid_map.obstacles_inflation_z_down", 0.0);
     self_double_cylinder_radius_ = load_parameter<double>(node_, "grid_map.double_cylinder_radius", 0.0);
     self_double_cylinder_offset_ = load_parameter<double>(node_, "grid_map.double_cylinder_offset", 0.0);
+    footprint_yaw_margin_ = load_parameter<double>(node_, "grid_map.footprint_yaw_margin", 0.0);
     body_height_ = load_parameter<double>(node_, "grid_map.body_height", 0.0);
     self_inflation_frame_id_ = load_parameter<std::string>(node_, "grid_map.frame_id", "world");
 
@@ -84,6 +88,8 @@ namespace scan_planner
     data_disp_pub_ = node_->create_publisher<scan_planner_msgs::msg::DataDisp>("planning/data_display", 100);
     self_inflation_pub_ = node_->create_publisher<visualization_msgs::msg::Marker>(
         "self_inflation", rclcpp::QoS(1).reliable().transient_local());
+    traj_footprint_pub_ = node_->create_publisher<visualization_msgs::msg::MarkerArray>(
+        "traj_footprint", rclcpp::QoS(5).reliable().transient_local());
 
     if (navi_mode_ == NAVI_MODE::MANUAL_TARGET)
       goal_sub_ = node_->create_subscription<geometry_msgs::msg::PoseStamped>(
@@ -498,6 +504,97 @@ namespace scan_planner
     self_inflation_pub_->publish(marker);
   }
 
+  void SCANReplanFSM::publishTrajFootprint(UniformBspline &pos_traj)
+  {
+    const double radius = std::max(0.0, self_double_cylinder_radius_);
+    const double z_up = std::max(0.0, self_inflation_z_up_);
+    const double z_down = std::max(0.0, self_inflation_z_down_);
+    const double height = std::max(1e-3, z_up + z_down);
+    if (radius <= 1e-3)
+      return;
+
+    const double duration = pos_traj.getTimeSum();
+    if (duration <= 1e-3)
+      return;
+    const std::string frame_id = self_inflation_frame_id_.empty() ? "world" : self_inflation_frame_id_;
+
+    visualization_msgs::msg::MarkerArray array;
+    // DELETEALL 清掉上一次的 marker，避免轨迹变短时残留
+    visualization_msgs::msg::Marker clear;
+    clear.action = visualization_msgs::msg::Marker::DELETEALL;
+    clear.header.frame_id = frame_id;
+    array.markers.push_back(clear);
+
+    int id = 0;
+    auto add_cylinder_pair = [&](const Eigen::Vector3d &center, double yaw,
+                                 const char *ns, double r, double g, double b, double a) {
+      const Eigen::Vector3d heading(std::cos(yaw), std::sin(yaw), 0.0);
+      for (int side = 0; side < 2; ++side)
+      {
+        const double sign = (side == 0) ? 1.0 : -1.0;
+        const Eigen::Vector3d c = center + sign * self_double_cylinder_offset_ * heading;
+        visualization_msgs::msg::Marker m;
+        m.header.frame_id = frame_id;
+        m.header.stamp = node_->now();
+        m.ns = ns;
+        m.id = id++;
+        m.type = visualization_msgs::msg::Marker::CYLINDER;
+        m.action = visualization_msgs::msg::Marker::ADD;
+        m.pose.position.x = c(0);
+        m.pose.position.y = c(1);
+        m.pose.position.z = c(2) + 0.5 * (z_up - z_down);
+        m.pose.orientation.w = 1.0;
+        m.scale.x = 2.0 * radius;
+        m.scale.y = 2.0 * radius;
+        m.scale.z = height;
+        m.color.r = r;
+        m.color.g = g;
+        m.color.b = b;
+        m.color.a = a;
+        array.markers.push_back(m);
+      }
+    };
+
+    // 按弧长 ~0.15m 采样；yaw 用相邻采样点连线方向，与优化器 estimateSegmentYaw 一致
+    constexpr double kStep = 0.15;
+    constexpr double kDt = 0.02;
+    Eigen::Vector3d anchor = pos_traj.evaluateDeBoorT(0.0);
+    for (double t = kDt; t < duration; t += kDt)
+    {
+      const Eigen::Vector3d p = pos_traj.evaluateDeBoorT(t);
+      const Eigen::Vector2d diff(p(0) - anchor(0), p(1) - anchor(1));
+      if (diff.norm() < kStep)
+        continue;
+
+      const double yaw = std::atan2(diff(1), diff(0));
+      // 蓝色 = 规划模型的切线姿态双圆柱（旧模型的检查范围）
+      add_cylinder_pair(p, yaw, "traj_footprint", 0.1, 0.6, 1.0, 0.30);
+      // 橙色 = 朝向包络 ±margin 姿态（本次改动新增的检查范围）
+      if (footprint_yaw_margin_ > 1e-3)
+      {
+        add_cylinder_pair(p, yaw + footprint_yaw_margin_, "traj_footprint_env", 1.0, 0.5, 0.1, 0.15);
+        add_cylinder_pair(p, yaw - footprint_yaw_margin_, "traj_footprint_env", 1.0, 0.5, 0.1, 0.15);
+      }
+      anchor = p;
+    }
+
+    // 末点（若与上一个采样点仍有间距）
+    const Eigen::Vector3d p_end = pos_traj.evaluateDeBoorT(duration);
+    const Eigen::Vector2d diff_end(p_end(0) - anchor(0), p_end(1) - anchor(1));
+    if (diff_end.squaredNorm() > 1e-8)
+    {
+      const double yaw = std::atan2(diff_end(1), diff_end(0));
+      add_cylinder_pair(p_end, yaw, "traj_footprint", 0.1, 0.6, 1.0, 0.30);
+      if (footprint_yaw_margin_ > 1e-3)
+      {
+        add_cylinder_pair(p_end, yaw + footprint_yaw_margin_, "traj_footprint_env", 1.0, 0.5, 0.1, 0.15);
+        add_cylinder_pair(p_end, yaw - footprint_yaw_margin_, "traj_footprint_env", 1.0, 0.5, 0.1, 0.15);
+      }
+    }
+
+    traj_footprint_pub_->publish(array);
+  }
+
   void SCANReplanFSM::changeFSMExecState(FSM_EXEC_STATE new_state, string pos_call)
   {
 
@@ -509,7 +606,9 @@ namespace scan_planner
     static string state_str[7] = {"INIT", "WAIT_TARGET", "GEN_NEW_TRAJ", "REPLAN_TRAJ", "EXEC_TRAJ", "EMERGENCY_STOP"};
     int pre_s = int(exec_state_);
     exec_state_ = new_state;
-    cout << "[" + pos_call + "]: from " + state_str[pre_s] + " to " + state_str[int(new_state)] << endl;
+    // 同状态循环切换（如 GEN_NEW_TRAJ→GEN_NEW_TRAJ）不打印，避免失败时刷屏
+    if (pre_s != int(new_state))
+      cout << "[" + pos_call + "]: from " + state_str[pre_s] + " to " + state_str[int(new_state)] << endl;
   }
 
   std::pair<int, SCANReplanFSM::FSM_EXEC_STATE> SCANReplanFSM::timesOfConsecutiveStateCalls()
@@ -855,7 +954,8 @@ namespace scan_planner
         {
           if (t - t_cur < emergency_time_) // 0.8s of emergency time
           {
-            RCLCPP_WARN(node_->get_logger(), "Obstacle discovered; emergency stop in %.3fs", t - t_cur);
+            RCLCPP_WARN_THROTTLE(node_->get_logger(), g_log_clock, 2000,
+                         "Obstacle discovered; emergency stop in %.3fs", t - t_cur);
             changeFSMExecState(EMERGENCY_STOP, "SAFETY");
           }
           else
@@ -879,7 +979,11 @@ namespace scan_planner
         planner_manager_->reboundReplan(start_pt_, start_vel_, start_acc_, local_target_pt_, local_target_vel_, (have_new_target_ || flag_use_poly_init), flag_randomPolyTraj);
     have_new_target_ = false;
 
-    cout << "final_plan_success=" << plan_success << endl;
+    if (plan_success)
+      cout << "final_plan_success=" << plan_success << endl;
+    else
+      RCLCPP_WARN_THROTTLE(node_->get_logger(), g_log_clock, 2000,
+                           "final_plan_success=0 (replan failed)");
 
     if (plan_success)
     {
@@ -913,6 +1017,7 @@ namespace scan_planner
       bspline_pub_->publish(bspline);
 
       visualization_->displayOptimalTraj(info->position_traj_, 0);
+      publishTrajFootprint(info->position_traj_);
     }
 
     return plan_success;

@@ -2,11 +2,13 @@ closed_loop_controller:
   ros__parameters:
     use_sim_time: false
     time_forward: 0.8
-    heading_error_threshold: 0.8
+    # 直角弯防后腿扫墙：朝向误差>0.5rad即减速到10%（原0.8/0.3，横移角过大），
+    # kp_yaw提高使机头更快跟上切线，减少轨迹执行期间 footprint 相对规划模型的偏转
+    heading_error_threshold: 0.5
     kp_pos: 0.8
     ki_pos: 0.15
     kd_pos: 0.3
-    kp_yaw: 1.5
+    kp_yaw: 2.5
     max_vx: 0.75
     max_vy: 0.35
     max_vyaw: 1.0
@@ -14,7 +16,7 @@ closed_loop_controller:
     # Advanced PID control parameters
     integral_limit: 0.5
     adaptive_time_gain: 2.0
-    heading_speed_decay: 0.3
+    heading_speed_decay: 0.1
     use_acceleration_feedforward: true
     feedforward_priority: 0.7
     # true = body_pose twist is world-frame (Gazebo p3d); run.launch sets it in sim
