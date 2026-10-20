@@ -79,6 +79,8 @@ namespace scan_planner
     rclcpp::Time last_freeze_update_time_;
 
     Eigen::Vector3d odom_pos_, odom_vel_, odom_acc_; // odometry state
+    double odom_yaw_ = 0.0;                          // odometry yaw (from quaternion)
+    double start_z_relax_ = 0.6;                     // A′: 起点z松弛上限(m)，0=关闭
     Eigen::Quaterniond odom_orient_;
 
     Eigen::Vector3d init_pt_, start_pt_, start_vel_, start_acc_, start_yaw_; // start state

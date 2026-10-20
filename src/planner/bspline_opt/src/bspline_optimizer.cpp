@@ -766,7 +766,15 @@ namespace scan_planner
         }
         if (j < 0) // fail to get the obs free point
         {
-          RCLCPP_ERROR(rclcpp::get_logger("bspline_opt"), "The robot is inside an obstacle");
+          RCLCPP_ERROR(rclcpp::get_logger("bspline_opt"), "The robot is inside an obstacle (occ cp i=%d)", i);
+          for (int k = 0; k <= i && k < cps_.size; ++k)
+          {
+            const double yaw_k = estimateControlPointYaw(cps_.points, k);
+            RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("bspline_opt"), g_log_clock, 2000,
+                         "  cp%d=(%.2f,%.2f,%.2f) occ=%d yaw=%.2f", k,
+                         cps_.points(0, k), cps_.points(1, k), cps_.points(2, k),
+                         grid_map_->getInflateOccupancy(cps_.points.col(k), yaw_k), yaw_k);
+          }
           in_id = 0;
         }
 

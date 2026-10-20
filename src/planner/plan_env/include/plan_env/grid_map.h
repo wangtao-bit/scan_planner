@@ -173,6 +173,7 @@ public:
   inline int getOccupancy(Eigen::Vector3d pos);
   inline int getOccupancy(Eigen::Vector3i id);
   inline int getInflateOccupancy(Eigen::Vector3d pos, double yaw);
+  inline int getInflateOccupancy(Eigen::Vector3d pos); // 中心体素膨胀占据（无朝向圆柱）
   inline int getDoubleCylinderOccupancy(const Eigen::Vector3d &pos, double yaw);
 
   inline void boundIndex(Eigen::Vector3i& id);
@@ -370,6 +371,12 @@ inline int GridMap::getOccupancy(Eigen::Vector3d pos) {
   posToIndex(pos, id);
 
   return md_.occupancy_buffer_[toAddress(id)] > mp_.min_occupancy_log_ ? 1 : 0;
+}
+
+inline int GridMap::getInflateOccupancy(Eigen::Vector3d pos) {
+  // 中心体素膨胀占据（无朝向包络）：航点/目标z判定用——+0.55高度约定的
+  // 楼梯航点中心本就free，前圆柱伸到下一级台阶膨胀体是爬楼正常姿态
+  return getInflateOccupancyFromBuffer(pos, md_.occupancy_buffer_inflate_);
 }
 
 inline int GridMap::getInflateOccupancy(Eigen::Vector3d pos, double yaw) {

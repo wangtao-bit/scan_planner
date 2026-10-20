@@ -91,6 +91,40 @@ vector<GridNodePtr> AStar::retrievePath(GridNodePtr current)
     return path;
 }
 
+bool AStar::resolveLayerZ(const int x_idx, const int y_idx, const int desired_z_idx,
+                          const double yaw, int &free_z_idx)
+{
+    auto layerOccupied = [&](const int z_idx) -> int {
+        if (z_idx < 1 || z_idx >= POOL_SIZE_(2) - 1 ||
+            x_idx < 1 || x_idx >= POOL_SIZE_(0) - 1 || y_idx < 1 || y_idx >= POOL_SIZE_(1) - 1)
+            return -1;
+        return checkOccupancy(Index2Coord(Eigen::Vector3i(x_idx, y_idx, z_idx)), yaw);
+    };
+
+    if (layerOccupied(desired_z_idx) == 0)
+    {
+        free_z_idx = desired_z_idx;
+        return true;
+    }
+
+    // 最近优先：上下交替探测(等距时偏好向上=爬层)，找到距期望z最近的free层
+    const int relax_cells = static_cast<int>(std::round(z_relax_ * inv_step_size_));
+    for (int k = 1; k <= relax_cells; ++k)
+    {
+        if (layerOccupied(desired_z_idx + k) == 0)
+        {
+            free_z_idx = desired_z_idx + k;
+            return true;
+        }
+        if (layerOccupied(desired_z_idx - k) == 0)
+        {
+            free_z_idx = desired_z_idx - k;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool AStar::ConvertToIndexAndAdjustStartEndPoints(Vector3d start_pt, Vector3d end_pt, Vector3i &start_idx, Vector3i &end_idx)
 {
     if (!Coord2Index(start_pt, start_idx) || !Coord2Index(end_pt, end_idx))
@@ -103,6 +137,17 @@ bool AStar::ConvertToIndexAndAdjustStartEndPoints(Vector3d start_pt, Vector3d en
     start_to_end.normalize();
 
     int occ = checkOccupancy(Index2Coord(start_idx), path_yaw);
+    if (occ)
+    {
+        // z向贴层：起点期望z被占据(楼梯口/平台上/多层地形)时，先吸附到最近free层，
+        // 避免回退搜索把起点推出地图导致 INIT_ERR
+        int free_z;
+        if (resolveLayerZ(start_idx(0), start_idx(1), start_idx(2), path_yaw, free_z))
+        {
+            start_idx(2) = free_z;
+            occ = 0;
+        }
+    }
     if (occ)
     {
         //ROS_WARN("Start point is insdide an obstacle.");
@@ -122,6 +167,16 @@ bool AStar::ConvertToIndexAndAdjustStartEndPoints(Vector3d start_pt, Vector3d en
     }
 
     occ = checkOccupancy(Index2Coord(end_idx), path_yaw);
+    if (occ)
+    {
+        // z向贴层：终点同理
+        int free_z;
+        if (resolveLayerZ(end_idx(0), end_idx(1), end_idx(2), path_yaw, free_z))
+        {
+            end_idx(2) = free_z;
+            occ = 0;
+        }
+    }
     if (occ)
     {
         //ROS_WARN("End point is insdide an obstacle.");
@@ -240,6 +295,17 @@ ASTAR_RET AStar::AstarSearch(const double step_size, Vector3d start_pt, Vector3d
                     continue;
                 }
 
+                const double neighbor_yaw = std::atan2(static_cast<double>(dy), static_cast<double>(dx));
+
+                // z向贴层：线性插值z被占据(平台/台阶实体)时吸附到±z_relax_内最近free层；
+                // 无free层=真墙/厚实体，拒绝该邻居。z吸附后dz代价自然包含爬层成本。
+                int free_z_idx;
+                if (!resolveLayerZ(neighborIdx(0), neighborIdx(1), neighborIdx(2), neighbor_yaw, free_z_idx))
+                {
+                    continue;
+                }
+                neighborIdx(2) = free_z_idx;
+
                 neighborPtr = GridNodeMap_[neighborIdx(0)][neighborIdx(1)][neighborIdx(2)];
                 neighborPtr->index = neighborIdx;
 
@@ -251,12 +317,6 @@ ASTAR_RET AStar::AstarSearch(const double step_size, Vector3d start_pt, Vector3d
                 }
 
                 neighborPtr->rounds = rounds_;
-
-                const double neighbor_yaw = std::atan2(static_cast<double>(dy), static_cast<double>(dx));
-                if (checkOccupancy(Index2Coord(neighborPtr->index), neighbor_yaw))
-                {
-                    continue;
-                }
 
                 const int dz = neighborIdx(2) - current->index(2);
                 double static_cost = sqrt(dx * dx + dy * dy + dz * dz);

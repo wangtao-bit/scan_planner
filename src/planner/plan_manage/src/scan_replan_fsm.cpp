@@ -51,6 +51,7 @@ namespace scan_planner
     self_double_cylinder_offset_ = load_parameter<double>(node_, "grid_map.double_cylinder_offset", 0.0);
     footprint_yaw_margin_ = load_parameter<double>(node_, "grid_map.footprint_yaw_margin", 0.0);
     body_height_ = load_parameter<double>(node_, "grid_map.body_height", 0.0);
+    start_z_relax_ = load_parameter<double>(node_, "fsm.start_z_relax", 0.6);
     self_inflation_frame_id_ = load_parameter<std::string>(node_, "grid_map.frame_id", "world");
 
     if (navi_mode_ == NAVI_MODE::PRESET_TARGET)
@@ -262,6 +263,15 @@ namespace scan_planner
     end_pt_ = active_waypoints_[current_wp_];
     setStartStateFromOdomOrCurrentTraj();
 
+    // 方案2配套：航点z地形吸附（中心体素判定）——仅占据时抬到首个free层
+    // +margin；free的航点保持原值（密集+0.55约定不被XY圆盘膨胀污染），
+    // 稀疏粗略z的修正由getLocalTarget末端吸附(>1.5m门控)按当前地图重评估。
+    {
+      const Eigen::Vector3d dir = end_pt_ - start_pt_;
+      if (dir.head<2>().norm() > 1e-3)
+        planner_manager_->snapToTerrain(end_pt_, std::atan2(dir(1), dir(0)), false);
+    }
+
     bool success = planner_manager_->planGlobalTraj(
         start_pt_,
         start_vel_,
@@ -398,6 +408,10 @@ namespace scan_planner
     odom_pos_(0) = msg->pose.pose.position.x;
     odom_pos_(1) = msg->pose.pose.position.y;
     odom_pos_(2) = msg->pose.pose.position.z;
+
+    // 从四元数提取 yaw（A′起点z松弛的碰撞检查需要真实朝向）
+    const auto &q = msg->pose.pose.orientation;
+    odom_yaw_ = std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
 
     if (navi_mode_ == NAVI_MODE::MANUAL_TARGET && !rviz_height_ready_)
     {
@@ -639,6 +653,27 @@ namespace scan_planner
       fsm_num = 0;
     }
 
+    // 航点推进兜底检查（在状态机switch之前，任意规划/执行状态生效）：
+    // 原推进检查只在EXEC_TRAJ里评估——逼近航点时若重规划持续失败（爬梯末端
+    // 微小水平距离内的大z-gap动力学不可行、控制点悬在台阶膨胀边界闪烁带），
+    // FSM停在REPLAN⇄GEN_NEW死循环，永远回不到EXEC_TRAJ，推进检查跑不到→死锁。
+    // 狗进入当前航点0.5m(3D)内即推进到下一航点（与EXEC_TRAJ内原检查同语义）。
+    if (have_target_ && isWaypointSequenceMode() &&
+        current_wp_ + 1 < (int)active_waypoints_.size() &&
+        (exec_state_ == GEN_NEW_TRAJ || exec_state_ == REPLAN_TRAJ || exec_state_ == EXEC_TRAJ) &&
+        (end_pt_ - odom_pos_).norm() < 0.5)
+    {
+      current_wp_++;
+      if (planNextWaypoint())
+      {
+        changeFSMExecState(GEN_NEW_TRAJ, "FSM");
+        return;
+      }
+      replan_fail_count_++;
+      changeFSMExecState(GEN_NEW_TRAJ, "FSM");
+      return;
+    }
+
     switch (exec_state_)
     {
     case INIT:
@@ -858,16 +893,14 @@ namespace scan_planner
       return true;
     }
 
-    start_pt_ = odom_pos_;
-    start_vel_ = info->velocity_traj_.evaluateDeBoorT(t_cur);
-    start_acc_ = info->acceleration_traj_.evaluateDeBoorT(t_cur);
-
-    const Eigen::Vector2d to_goal = end_pt_.head<2>() - odom_pos_.head<2>();
-    if (to_goal.norm() > 1e-3 && start_vel_.head<2>().dot(to_goal) < 0.0)
-    {
-      start_vel_.setZero();
-      start_acc_.setZero();
-    }
+    // 起点统一走setStartStateFromOdomOrCurrentTraj（里程计起点+当前轨迹速度/
+    // 加速度+A′起点z抬升）。旧内联块是裸odom起点：楼梯爬升中机身z(表面+0.28)
+    // 常态落在前方台阶膨胀体里(前圆柱探下级台阶)，控制点cp0-2被判占据
+    // ("First three control points are in obstacles")；抬升只在航点切换/
+    // GEN_NEW_TRAJ时触发，稀疏长段连续replan永远裸起点，成败全靠占据闪烁
+    // 运气，1000次失败→失效保护（密集模式靠频繁航点切换在楼梯上触发抬升10次
+    // 侥幸存活）。两条路径行为统一后此风险消除。
+    setStartStateFromOdomOrCurrentTraj();
 
     if (!planner_manager_->planGlobalTraj(
             start_pt_,
@@ -901,6 +934,76 @@ namespace scan_planner
     start_pt_ = odom_pos_;
     start_vel_ = odom_vel_;
     start_acc_.setZero();
+
+    // A′ 起点z吸附（方案2配套）：楼梯爬升中，机身z(表面+0.28)与前圆柱(探到
+    // 下级台阶)常态落在台阶膨胀体里，前几个控制点被判占据("First three control
+    // points are in obstacles")；rebound的分段A*对起点短碰撞段无能为力("A-star
+    // path has fewer than 2 points")，稀疏长段无航点切换救援，1000次失败→失效
+    // 保护。起点=全局轨迹的"第0个采样点"：占据时用与采样点相同的朝向圆柱语义
+    // 吸附到 局部表面顶+margin(构造性覆盖前方圆柱/下级台阶，≈+0.55约定)。
+    // 触发(带下边界余量，保证确定性)：狗自身列或朝目标0.25m处(cp1-2所在列)
+    // 的 [z0-膨胀上界, z0+机身带] 任一被占据。吸附无效时回退旧的柱状带上扫
+    // (只查狗自身列、抬到膨胀顶+0.1)。都失败(真在高墙下)保持原样。
+    if (start_z_relax_ > 1e-3)
+    {
+      const double res = planner_manager_->grid_map_->getResolution();
+      const double band = std::max(0.1, body_height_ - self_inflation_z_up_);
+      Eigen::Vector3d probe = start_pt_;
+      auto columnFree = [&](const Eigen::Vector3d &base, const double z0) {
+        for (double z = z0 - self_inflation_z_up_; z <= z0 + band + 1e-9; z += res)
+        {
+          probe = base;
+          probe(2) = z;
+          if (planner_manager_->grid_map_->getInflateOccupancy(probe, odom_yaw_) != 0)
+            return false;
+        }
+        return true;
+      };
+
+      const Eigen::Vector2d to_goal = end_pt_.head<2>() - start_pt_.head<2>();
+      Eigen::Vector3d ahead = start_pt_;
+      double yaw_to_goal = odom_yaw_;
+      if (to_goal.norm() > 1e-3)
+      {
+        ahead.head<2>() += to_goal.normalized() * 0.25;
+        yaw_to_goal = std::atan2(to_goal(1), to_goal(0));
+      }
+
+      if (!columnFree(start_pt_, start_pt_(2)) || !columnFree(ahead, start_pt_(2)))
+      {
+        const bool goal_far = (end_pt_.head<2>() - start_pt_.head<2>()).norm() > 1.5;
+        const double z_raw = start_pt_(2);
+        // 远目标(稀疏长段)：采样语义吸附——表面顶+0.4，覆盖前方圆柱/下级
+        // 台阶。近目标(密集0.6m段)不吸附：采样语义会把起点拉离狗身0.45+，
+        // 短段时间重分配/跟踪失败×1000→失效保护，剖面由航点z承载。
+        if (goal_far)
+          planner_manager_->snapToTerrain(start_pt_, yaw_to_goal, true);
+        if (start_pt_(2) > z_raw + 1e-9)
+        {
+          RCLCPP_WARN_THROTTLE(node_->get_logger(), g_log_clock, 2000,
+                               "Start in inflation (stairs/platform), snap start z: %.2f -> %.2f",
+                               z_raw, start_pt_(2));
+        }
+        else if (!columnFree(start_pt_, start_pt_(2)))
+        {
+          // 近目标(密集)或吸附无效(深陷高墙/下扫无数据)：回退旧A′柱状带
+          // 最小抬升(起点贴近狗身)
+          for (double z0 = start_pt_(2) + res; z0 <= start_pt_(2) + start_z_relax_ + 1e-9; z0 += res)
+          {
+            if (columnFree(start_pt_, z0))
+            {
+              probe = start_pt_;
+              probe(2) = z0;
+              RCLCPP_WARN_THROTTLE(node_->get_logger(), g_log_clock, 2000,
+                                   "Start in inflation (stairs/platform), lift start z: %.2f -> %.2f",
+                                   start_pt_(2), probe(2));
+              start_pt_ = probe;
+              break;
+            }
+          }
+        }
+      }
+    }
 
     LocalTrajData *info = &planner_manager_->local_data_;
     if (info->start_time_.seconds() < 1e-5 || info->duration_ <= 1e-5)
@@ -1100,6 +1203,60 @@ namespace scan_planner
       prev_pos = pos_t;
     }
     planner_manager_->global_data_.last_progress_time_ = target_found ? target_t : duration;
+
+    // 方案2配套：局部目标的地形z吸附（用当前地图逐replan重评估）。全局轨迹
+    // 按航点选择时刻的地图生成：狗在台阶/平台边缘看不见前方踏面(垂直FOV受限+
+    // 自遮挡)，跨未知楼梯段的采样保持直线低值；膨胀闪烁还会让目标z在直线低值
+    // (1.10)与吸附高值间跳变，静止的狗被低目标钉死在梯底；末端(目标进入视界后
+    // local_target=end_pt_的原始z，如平台+0.28)落在膨胀闪烁带内，轨迹末端控制
+    // 点被占据翻转打穿("occ cp i=8-16"×1000→失效保护)。
+    // - 视界截断点(机身通道点)：圆柱语义抬到表面顶+margin，仅跨层路线启用
+    //   (终点与狗高差>0.1m)——平地/室内(目标≈狗高)不受影响；
+    // - 末端=end_pt_(航点)：圆柱语义下扫吸附(表面顶+margin)，仅当航点距离
+    //   >1.5m时启用——密集0.6m段不触发(+0.55约定航点保持原值：中心列会被
+    //   下一级台阶的XY圆盘膨胀污染而误抬)，稀疏粗略z(如平台+0.28)拉出闪烁带。
+    if (target_found)
+    {
+      if (std::abs(end_pt_(2) - odom_pos_(2)) > 0.1)
+      {
+        const Eigen::Vector3d to_target = local_target_pt_ - odom_pos_;
+        if (to_target.head<2>().norm() > 1e-3)
+          planner_manager_->snapToTerrain(local_target_pt_, std::atan2(to_target(1), to_target(0)), true);
+      }
+    }
+    else if ((end_pt_.head<2>() - odom_pos_.head<2>()).norm() > 1.5)
+    {
+      const Eigen::Vector3d to_target = local_target_pt_ - odom_pos_;
+      if (to_target.head<2>().norm() > 1e-3)
+        planner_manager_->snapToTerrain(local_target_pt_, std::atan2(to_target(1), to_target(0)), true);
+    }
+
+    // 方案2配套：局部目标z下限=目标点沿全局轨迹回退0.75m处的采样z。目标列
+    // 超出传感器量程(depth_filter 3m)时上面的吸附下扫无数据，稀疏wp2的末端
+    // 目标停在文件粗略z(1.48)——applyLinearZReference把初始路径z拉成起点→
+    // 目标直线，以<0.1m余量擦过平台边缘膨胀带(1.30-1.35)，控制点在占据翻转
+    // 边界碎片化碰撞、A*段退化("fewer than 2 points")，first_optimize_step=0
+    // ×1000→失效保护(擦边比深切更致命：深切段长、A*能整体抬升)。目标前
+    // 0.75m的采样在量程内、已吸附到表面顶+0.4，用其z做目标z下限(只抬不降，
+    // 直线整体抬到膨胀带上方；下坡时前方采样z已随剖面下降，同样成立)。
+    // 仅跨层路线启用——平地/密集(近目标门控外)不受影响。
+    if (std::abs(end_pt_(2) - odom_pos_(2)) > 0.1)
+    {
+      double back_dist = 0.0;
+      Eigen::Vector3d prev_p = local_target_pt_;
+      for (double t = target_t; t >= std::max(0.0, t_proj); t -= t_step)
+      {
+        Eigen::Vector3d p = planner_manager_->global_data_.getPosition(t);
+        back_dist += (p - prev_p).norm();
+        prev_p = p;
+        if (back_dist >= 0.75)
+        {
+          if (p(2) > local_target_pt_(2))
+            local_target_pt_(2) = p(2);
+          break;
+        }
+      }
+    }
 
     auto targetOccupancy = [&](const Eigen::Vector3d &pt) {
       return planner_manager_->grid_map_->getInflateOccupancy(pt, estimateYawFromSegment(odom_pos_, pt));

@@ -407,7 +407,7 @@ Visualization Manager:
       Enabled: true
       Name: Goal
       Namespaces:
-        "": true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -430,18 +430,17 @@ Visualization Manager:
         Value: /self_inflation
       Value: true
     - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
+      Enabled: false
       Name: Traj Footprint
       Namespaces:
-        traj_footprint: true
-        traj_footprint_env: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Transient Local
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /traj_footprint
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/Marker
       Enabled: true
       Name: Robot Axes
@@ -652,25 +651,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 3.395176410675049
+      Distance: 16.552501678466797
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 9.028658866882324
-        Y: 3.8424651622772217
-        Z: -0.1181875467300415
+        X: 3.76814603805542
+        Y: 2.547029495239258
+        Z: 0.002394462237134576
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.0097967386245728
+      Pitch: 1.5697963237762451
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz_default_plugins)
-      Yaw: 1.776819109916687
+      Yaw: 4.411822319030762
     Saved: ~
 Window Geometry:
   Displays:

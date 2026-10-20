@@ -74,6 +74,12 @@ namespace scan_planner
     bspline_optimizer_rebound_->setEnvironment(grid_map_);
     bspline_optimizer_rebound_->a_star_.reset(new AStar);
     bspline_optimizer_rebound_->a_star_->initGridMap(grid_map_, Eigen::Vector3i(100, 100, 100));
+    // A* 节点z向松弛：楼梯/平台多层地形下线性插值z会切进实体，贴层解析范围
+    bspline_optimizer_rebound_->a_star_->setZRelax(get_double("manager.astar_z_relax", 0.5));
+    // 全局轨迹地形感知z吸附余量：采样点/起点(远目标)吸附到表面顶+此值(0.4=
+    // 距膨胀顶0.4实余量，彻底避开±1格占据闪烁带，v1全任务验证值；0.25仍会被
+    // 闪烁翻转打穿)；航点仅占据时抬到free层+此值(free保持原值)；0=关闭
+    global_traj_z_margin_ = get_double("manager.global_traj_z_margin", 0.4);
 
     visualization_ = vis;
   }
@@ -415,39 +421,134 @@ namespace scan_planner
     return true;
   }
 
+  // 地形感知z吸附（方案2配套）。
+  // 航点目标(body_envelope=false)：中心体素判定，仅占据时抬到首个free层
+  // +margin；free的航点保持原值(密集+0.55约定不被污染，稀疏粗略z由
+  // getLocalTarget末端吸附按当前地图修正)。
+  // 航线采样点(body_envelope=true)：朝向圆柱判定；占据时上扫free层，并下扫
+  // 找表面顶、抬到顶+margin(只抬不降)——边缘free(膨胀顶上方1-2格，台阶/平台
+  // 边缘自遮挡与掠射观测常见)同样落在±1格闪烁带，必须拉到表面顶+余量；
+  // margin=0.4=距膨胀顶0.4实余量(v1全任务验证值)。深陷障碍/下方无已知
+  // 层面时保持原样。
+  void SCANPlannerManager::snapToTerrain(Eigen::Vector3d &pt, const double yaw, const bool body_envelope)
+  {
+    auto occ = [&](const Eigen::Vector3d &q) {
+      return body_envelope ? grid_map_->getInflateOccupancy(q, yaw)
+                           : grid_map_->getInflateOccupancy(q);
+    };
+    const double res = grid_map_->getResolution();
+    constexpr double up_limit = 1.0;    // 被占据时向上找free层的上限
+    Eigen::Vector3d probe = pt;
+
+    if (occ(pt) != 0)
+    {
+      bool free_found = false;
+      for (double z = pt(2) + res; z <= pt(2) + up_limit + 1e-9; z += res)
+      {
+        probe(2) = z;
+        if (occ(probe) == 0)
+        {
+          free_found = true;
+          break;
+        }
+      }
+      if (!free_found)
+        return; // 深陷障碍(高墙等)：保持原样，由上层处理
+
+      if (!body_envelope)
+      {
+        // 被占据的航点：抬到free层+余量
+        pt(2) = probe(2) + global_traj_z_margin_;
+        return;
+      }
+    }
+    else if (!body_envelope)
+    {
+      // free的航点保持原值：膨胀的XY圆盘会把下一级台阶的膨胀体扩进航点
+      // 中心列，下扫读到的是下一级台阶顶而非本地踏面顶——密集+0.55约定
+      // 航点被误抬+0.15(1.15→1.30/1.45→1.60)，0.6m短段爬升超加速度上限
+      // 被拒×1000→失效保护。稀疏粗略z航点的修正由getLocalTarget末端吸附
+      // (>1.5m距离门控+圆柱语义)承担。
+      return;
+    }
+
+    // 采样点(圆柱)下扫找最近的占据层顶，抬到顶+margin（只抬不降）：
+    // 边缘free(膨胀顶上方1-2格)拉出闪烁带
+    constexpr double down_window = 1.5;
+    for (double z = probe(2) - res; z >= probe(2) - down_window; z -= res)
+    {
+      Eigen::Vector3d below = pt;
+      below(2) = z;
+      if (occ(below) != 0)
+      {
+        const double target_z = z + res + global_traj_z_margin_;
+        if (target_z > pt(2))
+          pt(2) = target_z;
+        return;
+      }
+    }
+    // 下方无已知层面(未知区/飞越)：保持
+  }
+
   bool SCANPlannerManager::planGlobalTraj(const Eigen::Vector3d &start_pos, const Eigen::Vector3d &start_vel, const Eigen::Vector3d &start_acc,
                                          const Eigen::Vector3d &end_pos, const Eigen::Vector3d &end_vel, const Eigen::Vector3d &end_acc)
   {
 
     // generate global reference trajectory
-
-    vector<Eigen::Vector3d> points;
-    points.push_back(start_pos);
-    points.push_back(end_pos);
-
-    // insert intermediate points if too far
     vector<Eigen::Vector3d> inter_points;
-    const double dist_thresh = 4.0;
 
-    for (size_t i = 0; i < points.size() - 1; ++i)
+    if (global_traj_z_margin_ > 1e-3)
     {
-      inter_points.push_back(points.at(i));
-      double dist = (points.at(i + 1) - points.at(i)).norm();
+      // 地形感知加密（方案2）：原实现是纯直线min-snap（>4m才线性加密），稀疏
+      // 航点跨楼梯时z剖面切进台阶膨胀体，局部rebound的分段A*在楼梯几何里找不到
+      // 绕行（"Failed to generate rebound direction"×1000→失效保护）。
+      // 现沿直线按踏面间距(0.3m)采样，采样点z吸附到局部表面顶+margin
+      // （距膨胀顶0.4实余量，边缘free采样同样拉出闪烁带）；末端(航点)中心
+      // 体素判定、仅占据时修正（free的+0.55约定航点保持原值）。
+      const double sample_step = 0.3;
+      const Eigen::Vector3d dir = end_pos - start_pos;
+      const double yaw = std::atan2(dir(1), dir(0));
+      const int n = std::max(0, (int)std::floor(dir.norm() / sample_step));
 
-      if (dist > dist_thresh)
+      inter_points.push_back(start_pos);
+      for (int j = 1; j <= n; ++j)
       {
-        int id_num = floor(dist / dist_thresh) + 1;
+        Eigen::Vector3d pt = start_pos * (1.0 - double(j) / (n + 1)) + end_pos * double(j) / (n + 1);
+        snapToTerrain(pt, yaw);
+        inter_points.push_back(pt);
+      }
+      Eigen::Vector3d goal = end_pos;
+      snapToTerrain(goal, yaw, false); // 末端(航点)中心体素判定：+0.55约定航点保持原值
+      inter_points.push_back(goal);
+    }
+    else
+    {
+      // 原逻辑（平地/密集航点足够）：>4m才线性加密
+      vector<Eigen::Vector3d> points;
+      points.push_back(start_pos);
+      points.push_back(end_pos);
+      const double dist_thresh = 4.0;
 
-        for (int j = 1; j < id_num; ++j)
+      for (size_t i = 0; i < points.size() - 1; ++i)
+      {
+        inter_points.push_back(points.at(i));
+        double dist = (points.at(i + 1) - points.at(i)).norm();
+
+        if (dist > dist_thresh)
         {
-          Eigen::Vector3d inter_pt =
-              points.at(i) * (1.0 - double(j) / id_num) + points.at(i + 1) * double(j) / id_num;
-          inter_points.push_back(inter_pt);
+          int id_num = floor(dist / dist_thresh) + 1;
+
+          for (int j = 1; j < id_num; ++j)
+          {
+            Eigen::Vector3d inter_pt =
+                points.at(i) * (1.0 - double(j) / id_num) + points.at(i + 1) * double(j) / id_num;
+            inter_points.push_back(inter_pt);
+          }
         }
       }
-    }
 
-    inter_points.push_back(points.back());
+      inter_points.push_back(points.back());
+    }
 
     // write position matrix
     int pt_num = inter_points.size();

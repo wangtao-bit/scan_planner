@@ -10,6 +10,7 @@ scan_planner_node:
     fsm.emergency_time: 1.0               # 紧急停止时间(s)
     fsm.fail_safe: true                   # 启用失效安全模式
     fsm.max_replan_fail_count: 1000       # 最大重规划失败次数
+    fsm.start_z_relax: 0.6                # 起点z松弛上限(m) - 起点被膨胀体占据(楼梯口/平台)时向上找最近free层；0=关闭
 
     # ============ 栅格地图参数 ============
     grid_map.resolution: 0.05             # 栅格分辨率(m) - 越小越精细但计算量大，典型值0.05-0.1
@@ -68,6 +69,8 @@ scan_planner_node:
     manager.control_points_distance: 0.2  # B样条控制点间距(m)
     manager.feasibility_tolerance: 0.5    # 可行性容忍度
     manager.planning_horizon: 3.5         # 规划时间范围(s)
+    manager.astar_z_relax: 0.5            # A*节点z向松弛范围(m) - 期望z被占据时在±范围内吸附最近free层(楼梯/平台多层地形必需)；0=严格模式
+    manager.global_traj_z_margin: 0.4     # 地形z吸附余量(m) - 采样点/起点(远目标)吸附到表面顶+此值(0.4=距膨胀顶0.4实余量,彻底避开±1格闪烁带,v1全任务验证值);航点仅占据时抬到free层+此值(free保持原值)；0=关闭吸附
 
     # ============ 优化器参数（关键避障权重）============
     optimization.lambda_smooth: 1.0       # 平滑性权重 - 增大可使轨迹更平滑
