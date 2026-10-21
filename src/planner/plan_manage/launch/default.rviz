@@ -5,7 +5,7 @@ Panels:
     Property Tree Widget:
       Expanded: ~
       Splitter Ratio: 0.5
-    Tree Height: 865
+    Tree Height: 1206
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -60,12 +60,7 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
-        FL_calflower:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        FL_calflower1:
+        FL_calf_rotor:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -80,7 +75,17 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
+        FL_hip_rotor:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
         FL_thigh:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        FL_thigh_rotor:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -90,12 +95,7 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
-        FR_calflower:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        FR_calflower1:
+        FR_calf_rotor:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -110,17 +110,17 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
+        FR_hip_rotor:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
         FR_thigh:
           Alpha: 1
           Show Axes: false
           Show Trail: false
           Value: true
-        Head_lower:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        Head_upper:
+        FR_thigh_rotor:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -131,12 +131,7 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
-        RL_calflower:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        RL_calflower1:
+        RL_calf_rotor:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -151,7 +146,17 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
+        RL_hip_rotor:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
         RL_thigh:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        RL_thigh_rotor:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -161,12 +166,7 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
-        RR_calflower:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        RR_calflower1:
+        RR_calf_rotor:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -181,7 +181,17 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
+        RR_hip_rotor:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
         RR_thigh:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        RR_thigh_rotor:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -191,7 +201,7 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
-        base_link:
+        front_camera:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -199,21 +209,8 @@ Visualization Manager:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-        radar:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
+          Value: true
         trunk:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        velodyne:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        velodyne_base_link:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -325,8 +322,8 @@ Visualization Manager:
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 0.675000011920929
-        Min Value: -0.02500000037252903
+        Max Value: 0.574999988079071
+        Min Value: -0.125
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -359,8 +356,8 @@ Visualization Manager:
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 0.675000011920929
-        Min Value: -0.125
+        Max Value: 0.574999988079071
+        Min Value: -0.5249999761581421
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -407,7 +404,7 @@ Visualization Manager:
       Enabled: true
       Name: Goal
       Namespaces:
-        {}
+        "": true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -418,34 +415,9 @@ Visualization Manager:
       Value: true
     - Class: rviz_default_plugins/Marker
       Enabled: true
-      Name: Self Inflation
-      Namespaces:
-        self_inflation: true
-      Topic:
-        Depth: 5
-        Durability Policy: Transient Local
-        Filter size: 10
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /self_inflation
-      Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Enabled: false
-      Name: Traj Footprint
-      Namespaces:
-        {}
-      Topic:
-        Depth: 5
-        Durability Policy: Transient Local
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /traj_footprint
-      Value: false
-    - Class: rviz_default_plugins/Marker
-      Enabled: true
       Name: Robot Axes
       Namespaces:
-        {}
+        robot_axes: true
       Topic:
         Depth: 1
         Durability Policy: Volatile
@@ -461,73 +433,71 @@ Visualization Manager:
         All Enabled: true
         FL_calf:
           Value: true
-        FL_calflower:
-          Value: true
-        FL_calflower1:
+        FL_calf_rotor:
           Value: true
         FL_foot:
           Value: true
         FL_hip:
           Value: true
+        FL_hip_rotor:
+          Value: true
         FL_thigh:
+          Value: true
+        FL_thigh_rotor:
           Value: true
         FR_calf:
           Value: true
-        FR_calflower:
-          Value: true
-        FR_calflower1:
+        FR_calf_rotor:
           Value: true
         FR_foot:
           Value: true
         FR_hip:
           Value: true
+        FR_hip_rotor:
+          Value: true
         FR_thigh:
           Value: true
-        Head_lower:
-          Value: true
-        Head_upper:
+        FR_thigh_rotor:
           Value: true
         RL_calf:
           Value: true
-        RL_calflower:
-          Value: true
-        RL_calflower1:
+        RL_calf_rotor:
           Value: true
         RL_foot:
           Value: true
         RL_hip:
           Value: true
+        RL_hip_rotor:
+          Value: true
         RL_thigh:
+          Value: true
+        RL_thigh_rotor:
           Value: true
         RR_calf:
           Value: true
-        RR_calflower:
-          Value: true
-        RR_calflower1:
+        RR_calf_rotor:
           Value: true
         RR_foot:
           Value: true
         RR_hip:
           Value: true
+        RR_hip_rotor:
+          Value: true
         RR_thigh:
+          Value: true
+        RR_thigh_rotor:
           Value: true
         base:
           Value: true
-        base_link:
+        front_camera:
           Value: true
         imu_link:
           Value: true
-        odom:
-          Value: true
-        radar:
+        sensor:
           Value: true
         sliding_map:
           Value: true
         trunk:
-          Value: true
-        velodyne:
-          Value: true
-        velodyne_base_link:
           Value: true
         world:
           Value: true
@@ -538,53 +508,58 @@ Visualization Manager:
       Show Names: false
       Tree:
         world:
-          odom:
-            base:
-              base_link:
-                {}
-              trunk:
-                FL_hip:
-                  FL_thigh:
-                    FL_calf:
-                      FL_calflower:
-                        FL_calflower1:
-                          {}
-                      FL_foot:
-                        {}
-                FR_hip:
-                  FR_thigh:
-                    FR_calf:
-                      FR_calflower:
-                        FR_calflower1:
-                          {}
-                      FR_foot:
-                        {}
-                Head_upper:
-                  Head_lower:
+          base:
+            trunk:
+              FL_hip:
+                FL_thigh:
+                  FL_calf:
+                    FL_foot:
+                      {}
+                  FL_calf_rotor:
                     {}
-                RL_hip:
-                  RL_thigh:
-                    RL_calf:
-                      RL_calflower:
-                        RL_calflower1:
-                          {}
-                      RL_foot:
-                        {}
-                RR_hip:
-                  RR_thigh:
-                    RR_calf:
-                      RR_calflower:
-                        RR_calflower1:
-                          {}
-                      RR_foot:
-                        {}
-                imu_link:
+                FL_thigh_rotor:
                   {}
-                radar:
+              FL_hip_rotor:
+                {}
+              FR_hip:
+                FR_thigh:
+                  FR_calf:
+                    FR_foot:
+                      {}
+                  FR_calf_rotor:
+                    {}
+                FR_thigh_rotor:
                   {}
-              velodyne_base_link:
-                velodyne:
+              FR_hip_rotor:
+                {}
+              RL_hip:
+                RL_thigh:
+                  RL_calf:
+                    RL_foot:
+                      {}
+                  RL_calf_rotor:
+                    {}
+                RL_thigh_rotor:
                   {}
+              RL_hip_rotor:
+                {}
+              RR_hip:
+                RR_thigh:
+                  RR_calf:
+                    RR_foot:
+                      {}
+                  RR_calf_rotor:
+                    {}
+                RR_thigh_rotor:
+                  {}
+              RR_hip_rotor:
+                {}
+              front_camera:
+                {}
+              imu_link:
+                {}
+          sensor:
+            {}
           sliding_map:
             {}
       Update Interval: 0
@@ -601,19 +576,6 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /optimal_list
-      Value: true
-    - Class: rviz_default_plugins/Marker
-      Enabled: true
-      Name: Marker
-      Namespaces:
-        self_inflation: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        Filter size: 10
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /self_inflation
       Value: true
   Enabled: true
   Global Options:
@@ -651,39 +613,39 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 16.552501678466797
+      Distance: 31.07322120666504
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 3.76814603805542
-        Y: 2.547029495239258
-        Z: 0.002394462237134576
+        X: -4.47959041595459
+        Y: 1.29607355594635
+        Z: -8.791008949279785
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.5697963237762451
+      Pitch: 1.0549992322921753
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz_default_plugins)
-      Yaw: 4.411822319030762
+      Yaw: 2.970010995864868
     Saved: ~
 Window Geometry:
   Displays:
     collapsed: false
-  Height: 1016
+  Height: 1472
   Hide Left Dock: false
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd00000001000000000000032f0000039efc0200000004fb000000100044006900730070006c006100790073010000003d0000039e000000c900fffffffb0000001200530065006c0065006300740069006f006e000000031d000001350000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007300000003f9000001990000005c00fffffffb0000000a00560069006500770073000000041b00000177000000a400ffffff000004050000039e00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd00000001000000000000032f00000524fc0200000004fb000000100044006900730070006c006100790073010000006e000005240000018200fffffffb0000001200530065006c0065006300740069006f006e000000031d00000135000000b000fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007300000003f900000199000000b000fffffffb0000000a00560069006500770073000000041b000001770000013200ffffff000006410000052400000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Tool Properties:
     collapsed: false
   Views:
     collapsed: false
-  Width: 1850
-  X: 70
-  Y: 27
+  Width: 2428
+  X: 132
+  Y: 54

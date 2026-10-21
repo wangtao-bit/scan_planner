@@ -5,12 +5,6 @@
 #include <cmath>
 // using namespace std;
 
-namespace
-{
-  // 高频失败路径的日志节流时钟（steady clock，不受仿真时间跳变影响）
-  rclcpp::Clock g_log_clock(RCL_STEADY_TIME);
-}
-
 namespace scan_planner
 {
 
@@ -129,7 +123,7 @@ namespace scan_planner
           if (in_id >= 0 && out_id >= in_id && out_id < init_points.cols())
             segment_ids.push_back(std::pair<int, int>(in_id, out_id));
           else
-            RCLCPP_WARN_THROTTLE(rclcpp::get_logger("bspline_opt"), g_log_clock, 2000,
+            RCLCPP_WARN(rclcpp::get_logger("bspline_opt"),
                         "Skip invalid collision segment: in_id=%d, out_id=%d", in_id, out_id);
         }
       }
@@ -147,14 +141,14 @@ namespace scan_planner
         vector<Eigen::Vector3d> path = a_star_->getPath();
         if (path.size() < 2)
         {
-          RCLCPP_WARN_THROTTLE(rclcpp::get_logger("bspline_opt"), g_log_clock, 2000, "A-star path has fewer than 2 points");
+          RCLCPP_WARN(rclcpp::get_logger("bspline_opt"), "A-star path has fewer than 2 points");
           return a_star_paths;
         }
         a_star_paths.push_back(path);
       }
       else
       {
-        RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("bspline_opt"), g_log_clock, 2000, "A-star failed; aborting optimization");
+        RCLCPP_ERROR(rclcpp::get_logger("bspline_opt"), "A-star failed; aborting optimization");
         return a_star_paths;
       }
     }
@@ -228,7 +222,7 @@ namespace scan_planner
     {
       if (i >= a_star_paths.size() || a_star_paths[i].size() < 2)
       {
-        RCLCPP_WARN_THROTTLE(rclcpp::get_logger("bspline_opt"), g_log_clock, 2000,
+        RCLCPP_WARN(rclcpp::get_logger("bspline_opt"),
                     "Skip invalid A-star path while assigning control point directions");
         continue;
       }
@@ -766,15 +760,7 @@ namespace scan_planner
         }
         if (j < 0) // fail to get the obs free point
         {
-          RCLCPP_ERROR(rclcpp::get_logger("bspline_opt"), "The robot is inside an obstacle (occ cp i=%d)", i);
-          for (int k = 0; k <= i && k < cps_.size; ++k)
-          {
-            const double yaw_k = estimateControlPointYaw(cps_.points, k);
-            RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("bspline_opt"), g_log_clock, 2000,
-                         "  cp%d=(%.2f,%.2f,%.2f) occ=%d yaw=%.2f", k,
-                         cps_.points(0, k), cps_.points(1, k), cps_.points(2, k),
-                         grid_map_->getInflateOccupancy(cps_.points.col(k), yaw_k), yaw_k);
-          }
+          RCLCPP_ERROR(rclcpp::get_logger("bspline_opt"), "The robot is inside an obstacle");
           in_id = 0;
         }
 
@@ -816,7 +802,7 @@ namespace scan_planner
           vector<Eigen::Vector3d> path = a_star_->getPath();
           if (path.size() < 2)
           {
-            RCLCPP_WARN_THROTTLE(rclcpp::get_logger("bspline_opt"), g_log_clock, 2000,
+            RCLCPP_WARN(rclcpp::get_logger("bspline_opt"),
                         "A-star path has fewer than 2 points; drop collision segment");
             segment_ids.erase(segment_ids.begin() + i);
             i--;
@@ -829,12 +815,12 @@ namespace scan_planner
           segment_ids[i].second = segment_ids[i + 1].second;
           segment_ids.erase(segment_ids.begin() + i + 1);
           --i;
-          RCLCPP_WARN_THROTTLE(rclcpp::get_logger("bspline_opt"), g_log_clock, 2000,
+          RCLCPP_WARN(rclcpp::get_logger("bspline_opt"),
                       "A-star failed on a collision segment; merge it with the next segment");
         }
         else
         {
-          RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("bspline_opt"), g_log_clock, 2000, "A-star error");
+          RCLCPP_ERROR(rclcpp::get_logger("bspline_opt"), "A-star error");
           segment_ids.erase(segment_ids.begin() + i);
           i--;
         }
@@ -845,7 +831,7 @@ namespace scan_planner
       {
         if (i >= a_star_paths.size() || a_star_paths[i].size() < 2)
         {
-          RCLCPP_WARN_THROTTLE(rclcpp::get_logger("bspline_opt"), g_log_clock, 2000,
+          RCLCPP_WARN(rclcpp::get_logger("bspline_opt"),
                       "Skip invalid A-star path while assigning rebound directions");
           continue;
         }
@@ -1040,7 +1026,11 @@ namespace scan_planner
 
             if (t <= bspline_interval_) // First 3 control points in obstacles!
             {
-              RCLCPP_WARN_THROTTLE(rclcpp::get_logger("bspline_opt"), g_log_clock, 2000,
+              cout << cps_.points.col(1).transpose() << "\n"
+                   << cps_.points.col(2).transpose() << "\n"
+                   << cps_.points.col(3).transpose() << "\n"
+                   << cps_.points.col(4).transpose() << endl;
+              RCLCPP_WARN(rclcpp::get_logger("bspline_opt"),
                           "First three control points are in obstacles; t=%f", t);
               return false;
             }
@@ -1060,16 +1050,14 @@ namespace scan_planner
           initControlPoints(cps_.points, false);
           new_lambda2_ *= 2;
 
-          RCLCPP_INFO_THROTTLE(rclcpp::get_logger("bspline_opt"), g_log_clock, 2000,
-                               "keep optimizing: iter(+1)=%d,time(ms)=%5.3f", iter_num_, time_ms);
+          printf("\033[32miter(+1)=%d,time(ms)=%5.3f,keep optimizing\n\033[0m", iter_num_, time_ms);
         }
       }
       else if (result == lbfgs::LBFGSERR_CANCELED)
       {
         flag_force_return = true;
         rebound_times++;
-        RCLCPP_INFO_THROTTLE(rclcpp::get_logger("bspline_opt"), g_log_clock, 2000,
-                             "rebound: iter=%d,time(ms)=%5.3f", iter_num_, time_ms);
+        cout << "iter=" << iter_num_ << ",time(ms)=" << time_ms << ",rebound." << endl;
       }
       else
       {

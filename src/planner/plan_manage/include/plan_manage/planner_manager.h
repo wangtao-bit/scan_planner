@@ -33,10 +33,6 @@ namespace scan_planner
                         const Eigen::Vector3d &end_pos, const Eigen::Vector3d &end_vel, const Eigen::Vector3d &end_acc);
     bool planGlobalTrajWaypoints(const Eigen::Vector3d &start_pos, const Eigen::Vector3d &start_vel, const Eigen::Vector3d &start_acc,
                                  const std::vector<Eigen::Vector3d> &waypoints, const Eigen::Vector3d &end_vel, const Eigen::Vector3d &end_acc);
-    // 地形感知z吸附：body_envelope=false(航点)仅占据时抬到free层+margin；
-    // body_envelope=true(采样点)额外下扫表面顶、抬到顶+margin(≈表面+0.55约定，
-    // 边缘free采样同样拉出闪烁带)。已free的航点不动。
-    void snapToTerrain(Eigen::Vector3d &pt, const double yaw, const bool body_envelope = true);
 
     void initPlanModules(rclcpp::Node *node, PlanningVisualization::Ptr vis = nullptr);
 
@@ -53,7 +49,6 @@ namespace scan_planner
     BsplineOptimizer::Ptr bspline_optimizer_rebound_;
 
     int continuous_failures_count_{0};
-    double global_traj_z_margin_{0.0}; // 全局轨迹地形吸附余量(m)；0=关闭(纯直线min-snap)
 
     void updateTrajInfo(const UniformBspline &position_traj, const rclcpp::Time time_now);
     bool checkDynamicFeasibility(UniformBspline position_traj);

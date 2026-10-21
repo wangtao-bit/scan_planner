@@ -68,14 +68,8 @@ private:
 
 	inline int checkOccupancy(const Eigen::Vector3d &pos, const double yaw) { return grid_map_->getInflateOccupancy(pos, yaw); }
 
-	// 2.5D搜索面z贴层解析：期望z(起终点线性插值)被占据时，在±z_relax_内
-	// 以最近优先寻找free层并吸附。楼梯/平台等多层地形下，线性插值z会切进
-	// 台阶/平台实体，贴层解析让搜索面跟随可通行表面。返回false=真墙/厚实体。
-	bool resolveLayerZ(int x_idx, int y_idx, int desired_z_idx, double yaw, int &free_z_idx);
-
 	std::vector<GridNodePtr> retrievePath(GridNodePtr current);
 
-	double z_relax_ = 0.5; // z向松弛范围(m)，0=严格模式(原行为)
 	double step_size_, inv_step_size_;
 	Eigen::Vector3d center_;
 	Eigen::Vector3i CENTER_IDX_, POOL_SIZE_;
@@ -95,7 +89,6 @@ public:
 	~AStar();
 
 	void initGridMap(GridMap::Ptr occ_map, const Eigen::Vector3i pool_size);
-	void setZRelax(const double z_relax) { z_relax_ = std::max(0.0, z_relax); }
 
 	ASTAR_RET AstarSearch(const double step_size, Eigen::Vector3d start_pt, Eigen::Vector3d end_pt);
 
