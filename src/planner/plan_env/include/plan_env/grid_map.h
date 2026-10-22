@@ -84,6 +84,7 @@ struct MappingParameters {
   /* visualization and computation time display */
   double vis_height_, ground_height_;
   bool show_occ_time_;
+  int vis_inflate_downsample_;  // voxel stride when publishing the inflated map, 1 = no downsampling
 
   /* mapping sensor input */
   string sensor_type_;

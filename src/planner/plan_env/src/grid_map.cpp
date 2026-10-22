@@ -56,6 +56,7 @@ void GridMap::initMap(rclcpp::Node *node)
 
   load_parameter(node_, "grid_map.vis_height", mp_.vis_height_, 0.3);
   load_parameter(node_, "grid_map.show_occ_time", mp_.show_occ_time_, false);
+  load_parameter(node_, "grid_map.vis_inflate_downsample", mp_.vis_inflate_downsample_, 1);
 
   load_parameter(node_, "grid_map.frame_id", mp_.frame_id_, string("world"));
   load_parameter(node_, "grid_map.sliding_map_frame_id", mp_.sliding_map_frame_id_, string("sliding_map"));
@@ -162,7 +163,7 @@ void GridMap::initMap(rclcpp::Node *node)
 
   occ_timer_ = node_->create_wall_timer(std::chrono::milliseconds(50),
                                         std::bind(&GridMap::updateOccupancyCallback, this));
-  vis_timer_ = node_->create_wall_timer(std::chrono::milliseconds(50),
+  vis_timer_ = node_->create_wall_timer(std::chrono::milliseconds(200),
                                         std::bind(&GridMap::visCallback, this));
 
   map_pub_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("grid_map/occupancy", rclcpp::SensorDataQoS());
@@ -989,10 +990,13 @@ void GridMap::publishMapInflate(bool all_info)
   Eigen::Vector3i min_cut = mp_.map_bound_min_idx_;
   Eigen::Vector3i max_cut = mp_.map_bound_max_idx_;
 
+  // downsample for visualization: keep 1 voxel every `stride` per axis, ~stride^3 fewer points
+  const int stride = std::max(1, mp_.vis_inflate_downsample_);
+
   const std::vector<char> &inflate_buffer = md_.occupancy_buffer_inflate_;
-  for (int x = min_cut(0); x <= max_cut(0); ++x)
-    for (int y = min_cut(1); y <= max_cut(1); ++y)
-      for (int z = min_cut(2); z <= max_cut(2); ++z)
+  for (int x = min_cut(0); x <= max_cut(0); x += stride)
+    for (int y = min_cut(1); y <= max_cut(1); y += stride)
+      for (int z = min_cut(2); z <= max_cut(2); z += stride)
       {
         if (inflate_buffer[toAddress(x, y, z)] == 0)
           continue;
