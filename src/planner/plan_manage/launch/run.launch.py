@@ -1,7 +1,9 @@
 """Main ROS 2 launch entry point for simulation and real-robot remapping."""
 
 import os
+import tempfile
 
+import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
@@ -12,6 +14,19 @@ from launch_ros.actions import Node
 
 def _as_bool(value):
     return value.lower() in ("1", "true", "yes", "on")
+
+
+def _params_file(node_name, overrides):
+    """把 dict 参数写成按节点名索引的临时 YAML 后作为参数文件传入.
+
+    Foxy 的 launch_ros 会把 dict 参数序列化成 '/**:' 通配键的参数文件, 而
+    Foxy 的 rcl 不支持 '/**' 通配(Galactic 才引入), 整个文件被静默忽略,
+    导致所有 dict 参数(如 fsm.navi_mode)到不了节点. 按节点名写文件可绕过.
+    """
+    fd, path = tempfile.mkstemp(prefix="scan_planner_params_", suffix=".yaml")
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        yaml.safe_dump({node_name: {"ros__parameters": dict(overrides)}}, handle)
+    return path
 
 
 def _setup(context):
@@ -87,7 +102,9 @@ def _setup(context):
             executable="scan_planner_node",
             name="scan_planner_node",
             output="screen",
-            parameters=[planner_yaml] + ([keypoints_file] if keypoints_file else []) + [planner_overrides],
+            parameters=[planner_yaml]
+            + ([keypoints_file] if keypoints_file else [])
+            + [_params_file("scan_planner_node", planner_overrides)],
             remappings=[
                 ("body_pose", body_pose),
                 ("sensor_pose", sensor_pose),
@@ -125,8 +142,10 @@ def _setup(context):
                 output="screen",
                 parameters=[
                     controllers_yaml,
-                    common,
-                    {"init_x": init_x, "init_y": init_y, "init_z": init_z},
+                    _params_file(
+                        "open_loop_controller",
+                        {**common, "init_x": init_x, "init_y": init_y, "init_z": init_z},
+                    ),
                 ],
                 remappings=[
                     ("planning/bspline", "/planning/bspline"),
@@ -141,7 +160,7 @@ def _setup(context):
                 executable="closed_loop_controller",
                 name="closed_loop_controller",
                 output="screen",
-                parameters=[controllers_yaml, common],
+                parameters=[controllers_yaml, _params_file("closed_loop_controller", common)],
                 remappings=[
                     ("body_pose", body_pose),
                     ("cmd_vel", "/cmd_vel" if is_real else "/quad_0/cmd_vel"),
@@ -157,13 +176,16 @@ def _setup(context):
                     output="screen",
                     parameters=[
                         controllers_yaml,
-                        common,
-                        {
-                            "init_x": init_x,
-                            "init_y": init_y,
-                            "init_z": init_z,
-                            "publish_tf": False,
-                        },
+                        _params_file(
+                            "go2_kinematic_sim",
+                            {
+                                **common,
+                                "init_x": init_x,
+                                "init_y": init_y,
+                                "init_z": init_z,
+                                "publish_tf": False,
+                            },
+                        ),
                     ],
                     remappings=[
                         ("body_pose", "/quad_0/body_pose"),
@@ -179,7 +201,7 @@ def _setup(context):
                 executable="reference_path_publisher.py",
                 name="reference_path_publisher",
                 output="screen",
-                parameters=[reference_path_file, common],
+                parameters=[reference_path_file, _params_file("reference_path_publisher", common)],
                 remappings=[
                     ("body_pose", body_pose),
                     ("initial_path", "/initial_path"),
@@ -197,14 +219,17 @@ def _setup(context):
                 name="robot_pose_visualizer",
                 output="screen",
                 parameters=[
-                    common,
-                    {
-                        "frame_id": "world",
-                        "tf_child_frame": "robot_base",
-                        "publish_rate": 10.0,
-                        "axis_length": 0.3,
-                        "axis_width": 0.02,
-                    },
+                    _params_file(
+                        "robot_pose_visualizer",
+                        {
+                            **common,
+                            "frame_id": "world",
+                            "tf_child_frame": "robot_base",
+                            "publish_rate": 10.0,
+                            "axis_length": 0.3,
+                            "axis_width": 0.02,
+                        },
+                    ),
                 ],
                 remappings=[
                     ("body_pose", body_pose),
@@ -221,7 +246,7 @@ def _setup(context):
                     executable="go2_gait_publisher",
                     name="go2_gait_publisher",
                     output="screen",
-                    parameters=[controllers_yaml, common],
+                    parameters=[controllers_yaml, _params_file("go2_gait_publisher", common)],
                     remappings=[("body_pose", body_pose)],
                 ),
                 IncludeLaunchDescription(
