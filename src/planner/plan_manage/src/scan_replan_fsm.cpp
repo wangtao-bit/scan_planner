@@ -42,6 +42,8 @@ namespace scan_planner
     emergency_time_ = load_parameter<double>(node_, "fsm.emergency_time", 1.0);
     enable_fail_safe_ = load_parameter<bool>(node_, "fsm.fail_safe", true);
     max_replan_fail_count_ = load_parameter<int>(node_, "fsm.max_replan_fail_count", 1000);
+    terrain_z_gap_thresh_ = load_parameter<double>(node_, "fsm.terrain_z_gap_thresh", 0.3);
+    terrain_z_offset_ = load_parameter<double>(node_, "fsm.terrain_z_offset", 0.5);
     self_inflation_z_up_ = load_parameter<double>(node_, "grid_map.obstacles_inflation_z_up", 0.0);
     self_inflation_z_down_ = load_parameter<double>(node_, "grid_map.obstacles_inflation_z_down", 0.0);
     self_double_cylinder_radius_ = load_parameter<double>(node_, "grid_map.double_cylinder_radius", 0.0);
@@ -308,9 +310,17 @@ namespace scan_planner
 
     constexpr double sample_dt = 0.05;
     const int sample_num = std::max(1, static_cast<int>(std::ceil(duration / sample_dt)));
+    // Stair mode: occupancy is judged on the lifted check layer; end_pt_ itself
+    // keeps its raw value so waypoint arrival detection stays untouched.
+    const double terrain_lift = terrainLiftOffset();
+    auto occupancyAt = [&](const Eigen::Vector3d &pt, const double yaw) {
+      Eigen::Vector3d query_pt = pt;
+      query_pt(2) += terrain_lift;
+      return map->getInflateOccupancy(query_pt, yaw);
+    };
     const Eigen::Vector3d final_pt = global_data.global_traj_.evaluate(duration);
     const Eigen::Vector3d final_prev = global_data.global_traj_.evaluate(duration * (sample_num - 1) / sample_num);
-    const int final_occ = map->getInflateOccupancy(final_pt, estimateYawFromSegment(final_prev, final_pt));
+    const int final_occ = occupancyAt(final_pt, estimateYawFromSegment(final_prev, final_pt));
     if (final_occ <= 0)
       return true;
 
@@ -321,7 +331,7 @@ namespace scan_planner
       const Eigen::Vector3d pt = global_data.global_traj_.evaluate(t);
       const Eigen::Vector3d prev_pt = global_data.global_traj_.evaluate(prev_t);
 
-      if (map->getInflateOccupancy(pt, estimateYawFromSegment(prev_pt, pt)) == 0)
+      if (occupancyAt(pt, estimateYawFromSegment(prev_pt, pt)) == 0)
       {
         const Eigen::Vector3d raw_end = end_pt_;
         end_pt_ = pt;
@@ -870,13 +880,36 @@ namespace scan_planner
     }
   }
 
+  double SCANReplanFSM::terrainLiftOffset() const
+  {
+    // Stair mode gate: activate only when the goal is far above/below the robot
+    // (climbing or descending stairs). On flat ground this returns 0.0 and every
+    // caller falls back to the original single-layer behavior.
+    if (!have_odom_ || terrain_z_offset_ <= 0.0)
+      return 0.0;
+    const double z_gap = std::abs(end_pt_(2) - odom_pos_(2));
+    return z_gap > terrain_z_gap_thresh_ ? terrain_z_offset_ : 0.0;
+  }
+
   bool SCANReplanFSM::callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj)
   {
 
     getLocalTarget();
 
+    // Stair mode: lift the planning z of start and local target so the whole
+    // linear z reference rides above the inflated stair treads. Members keep
+    // their raw values (waypoint arrival / gate / retries must see the real z).
+    Eigen::Vector3d start_pt = start_pt_;
+    Eigen::Vector3d local_target_pt = local_target_pt_;
+    const double terrain_lift = terrainLiftOffset();
+    if (terrain_lift > 0.0)
+    {
+      start_pt(2) += terrain_lift;
+      local_target_pt(2) += terrain_lift;
+    }
+
     bool plan_success =
-        planner_manager_->reboundReplan(start_pt_, start_vel_, start_acc_, local_target_pt_, local_target_vel_, (have_new_target_ || flag_use_poly_init), flag_randomPolyTraj);
+        planner_manager_->reboundReplan(start_pt, start_vel_, start_acc_, local_target_pt, local_target_vel_, (have_new_target_ || flag_use_poly_init), flag_randomPolyTraj);
     have_new_target_ = false;
 
     cout << "final_plan_success=" << plan_success << endl;
@@ -996,8 +1029,14 @@ namespace scan_planner
     }
     planner_manager_->global_data_.last_progress_time_ = target_found ? target_t : duration;
 
+    // Stair mode: run the occupancy query on the lifted check layer so the
+    // forward scan can keep the target ahead on the stairs instead of pulling
+    // it back to the free flat ground behind the robot.
+    const double terrain_lift = terrainLiftOffset();
     auto targetOccupancy = [&](const Eigen::Vector3d &pt) {
-      return planner_manager_->grid_map_->getInflateOccupancy(pt, estimateYawFromSegment(odom_pos_, pt));
+      Eigen::Vector3d query_pt = pt;
+      query_pt(2) += terrain_lift;
+      return planner_manager_->grid_map_->getInflateOccupancy(query_pt, estimateYawFromSegment(odom_pos_, pt));
     };
 
     if (targetOccupancy(local_target_pt_) != 0)

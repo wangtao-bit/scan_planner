@@ -10,6 +10,8 @@ scan_planner_node:
     fsm.emergency_time: 1.0               # 紧急停止时间(s)
     fsm.fail_safe: true                   # 启用失效安全模式
     fsm.max_replan_fail_count: 1000       # 最大重规划失败次数
+    fsm.terrain_z_gap_thresh: 0.3         # 楼梯模式激活门限(m) - 目标点z与机器人z差超过此值才启用z抬高逻辑;平地保持旧行为
+    fsm.terrain_z_offset: 0.5             # 楼梯模式z抬高量(m) - 激活后起点/局部目标/占据判定整体抬高,需盖过台阶膨胀带(1.5×台阶高+z_up+余量)
 
     # ============ 栅格地图参数 ============
     grid_map.resolution: 0.05             # 栅格分辨率(m) - 越小越精细但计算量大，典型值0.05-0.1

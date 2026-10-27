@@ -57,6 +57,8 @@ namespace scan_planner
     int waypoint_num_;
     double planning_horizon_;
     double emergency_time_;
+    double terrain_z_gap_thresh_; // stair-mode gate: activate z lift when |goal z - robot z| exceeds this
+    double terrain_z_offset_;     // stair-mode z lift applied to start/local target and occupancy checks
     double rviz_goal_height_;
     double self_inflation_z_up_, self_inflation_z_down_;
     double self_double_cylinder_radius_, self_double_cylinder_offset_;
@@ -118,6 +120,7 @@ namespace scan_planner
     void publishSelfInflationMarker();
     double getOdomYaw() const;
     double estimateYawFromSegment(const Eigen::Vector3d &from, const Eigen::Vector3d &to) const;
+    double terrainLiftOffset() const; // returns stair-mode z lift, or 0.0 on flat ground (old behavior)
     void updateLocalTrajTimeFreeze();
 
     /* ROS functions */
